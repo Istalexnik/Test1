@@ -1,0 +1,19 @@
+@WebApiHubTest1_HostAddress = https://localhost:7078
+
+GET {{WebApiHubTest1_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+
+POST {{WebApiHubTest1_HostAddress}}/register/
+Accept: application/json
+Content-Type: application/json
+{
+"Username":"testuser",
+"Password":"Test@1234"
+}
+###
+
+
+
