@@ -36,7 +36,12 @@ namespace WebApiHubTest1
             });
 
 
-            var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+
+
+            // Register JwtService
+            builder.Services.AddSingleton<JwtService>();
+
+            // Configure Authentication and JWT
             builder.Services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -44,19 +49,21 @@ namespace WebApiHubTest1
             })
             .AddJwtBearer(options =>
             {
-                var secretKey = Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]);
-
-                options.TokenValidationParameters = new TokenValidationParameters
+                // Use a factory to resolve JwtService from DI
+                options.Events = new JwtBearerEvents
                 {
-                    ValidateIssuer = true,
-                    ValidateAudience = true,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    ValidIssuer = jwtSettings["Issuer"],
-                    ValidAudience = jwtSettings["Audience"],
-                    IssuerSigningKey = new SymmetricSecurityKey(secretKey)
+                    OnTokenValidated = context =>
+                    {
+                        var jwtService = context.HttpContext.RequestServices.GetRequiredService<JwtService>();
+                        context.Options.TokenValidationParameters = jwtService.GetTokenValidationParameters();
+                        return Task.CompletedTask;
+                    }
                 };
             });
+
+
+
+
 
 
             // Add Swagger services
