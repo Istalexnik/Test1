@@ -1,8 +1,7 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
 
-namespace WebApiHubTest1.Services
-{
+namespace WebApiHubTest1.Services;
     public class Encryption
     {
         private readonly string encryptionKey;
@@ -10,71 +9,61 @@ namespace WebApiHubTest1.Services
         public Encryption(IConfiguration configuration)
         {
             encryptionKey = configuration["EncryptionSettings:EncryptionKey"]
-            ?? throw new InvalidOperationException("Encryption key not found in environment variables.");
+                ?? throw new InvalidOperationException("Encryption key not found in configuration.");
         }
 
-        public string EncryptIt(string text)
+        public string Encrypt(string plaintext)
         {
-            return Encrypt(text);
+            using Aes aes = Aes.Create();
+
+            // Generate a random salt
+            byte[] salt = new byte[16];
+            using (var rng = RandomNumberGenerator.Create())
+                rng.GetBytes(salt);
+
+            // Derive key and IV
+            var rfc = new Rfc2898DeriveBytes(encryptionKey, salt, 100_000, HashAlgorithmName.SHA256);
+            aes.Key = rfc.GetBytes(32);
+            aes.GenerateIV(); // Random IV
+
+            using MemoryStream ms = new();
+            // Write salt and IV to the output stream
+            ms.Write(salt, 0, salt.Length);
+            ms.Write(aes.IV, 0, aes.IV.Length);
+
+            using CryptoStream cs = new(ms, aes.CreateEncryptor(), CryptoStreamMode.Write);
+            byte[] plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
+            cs.Write(plaintextBytes, 0, plaintextBytes.Length);
+            cs.FlushFinalBlock();
+
+            return Convert.ToBase64String(ms.ToArray());
         }
 
-        public string DecryptIt(string text)
+        public string Decrypt(string ciphertext)
         {
-            return Decrypt(text);
-        }
+            byte[] cipherBytes = Convert.FromBase64String(ciphertext);
 
-        private string Encrypt(string text)
-        {
-            byte[] clearBytes = Encoding.Unicode.GetBytes(text);
-            using (Aes aes = Aes.Create())
-            {
-                var rfc = new Rfc2898DeriveBytes(
-                    encryptionKey,
-                    new byte[] { 0x49, 0x76, 0x61, 0x6e, 0x20, 0x4d, 0x65, 0x64, 0x76, 0x65, 0x64, 0x65, 0x76 },
-                    100_000,
-                    HashAlgorithmName.SHA256
-                );
+            using MemoryStream ms = new(cipherBytes);
 
-                aes.Key = rfc.GetBytes(32);
-                aes.IV = rfc.GetBytes(16);
+            // Read salt
+            byte[] salt = new byte[16];
+            ms.Read(salt, 0, salt.Length);
 
-                using (MemoryStream ms = new MemoryStream())
-                {
-                    using (CryptoStream cs = new CryptoStream(ms, aes.CreateEncryptor(), CryptoStreamMode.Write))
-                    {
-                        cs.Write(clearBytes, 0, clearBytes.Length);
-                    }
-                    return Convert.ToBase64String(ms.ToArray());
-                }
-            }
-        }
+            // Read IV
+            byte[] iv = new byte[16];
+            ms.Read(iv, 0, iv.Length);
 
-        private string Decrypt(string text)
-        {
-            text = text.Replace(" ", "+"); // Ensure valid base64 format
-            byte[] cipherBytes = Convert.FromBase64String(text);
+            using Aes aes = Aes.Create();
 
-            using (Aes aes = Aes.Create())
-            {
-                var rfc = new Rfc2898DeriveBytes(
-                    encryptionKey,
-                    new byte[] { 0x49, 0x76, 0x61, 0x6e, 0x20, 0x4d, 0x65, 0x64, 0x76, 0x65, 0x64, 0x65, 0x76 },
-                    100_000,
-                    HashAlgorithmName.SHA256
-                );
+            // Derive key and IV
+            var rfc = new Rfc2898DeriveBytes(encryptionKey, salt, 100_000, HashAlgorithmName.SHA256);
+            aes.Key = rfc.GetBytes(32);
+            aes.IV = iv;
 
-                aes.Key = rfc.GetBytes(32);
-                aes.IV = rfc.GetBytes(16);
+            using CryptoStream cs = new(ms, aes.CreateDecryptor(), CryptoStreamMode.Read);
+            using MemoryStream output = new();
+            cs.CopyTo(output);
 
-                using (MemoryStream ms = new MemoryStream())
-                {
-                    using (CryptoStream cs = new CryptoStream(ms, aes.CreateDecryptor(), CryptoStreamMode.Write))
-                    {
-                        cs.Write(cipherBytes, 0, cipherBytes.Length);
-                    }
-                    return Encoding.Unicode.GetString(ms.ToArray());
-                }
-            }
+            return Encoding.UTF8.GetString(output.ToArray());
         }
     }
-}

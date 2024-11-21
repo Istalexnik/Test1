@@ -2,8 +2,7 @@
 using System.Net.Mail;
 using Microsoft.Extensions.Configuration;
 
-namespace WebApiHubTest1.Services
-{
+namespace WebApiHubTest1.Services;
     public class Emailing
     {
         private readonly string _email;
@@ -38,4 +37,4 @@ namespace WebApiHubTest1.Services
             }
         }
     }
-}
+

@@ -1,4 +1,5 @@
 using WebApiHubTest1.Data;
+using WebApiHubTest1.Endpoints;
 using WebApiHubTest1.Models;
 using WebApiHubTest1.Services;
 
@@ -12,67 +13,34 @@ namespace WebApiHubTest1
 
             // Add services to the container.
             builder.Services.AddAuthorization();
+            builder.Services.AddLogging();
 
             builder.Services.AddSingleton<Emailing>();      // Singleton for stateless email service
             builder.Services.AddSingleton<Encryption>();   // Singleton for reusable encryption logic
             builder.Services.AddScoped<DBTools>();        // Scoped for per-request database operations
 
+
             // Add connection string from appsettings.json
-            var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+            var connectionString = builder.Configuration.GetConnectionString("WebApiHubTest1Connection");
 
             // Register UserService with Dependency Injection
-            builder.Services.AddSingleton(new UserService(connectionString!));
+            builder.Services.AddSingleton<UserService>(sp =>
+            {
+                var encryption = sp.GetRequiredService<Encryption>();
+                var logger = sp.GetRequiredService<ILogger<UserService>>(); // Resolve ILogger
+                return new UserService(connectionString!, logger, encryption); // Pass dependencies
+            });
 
             var app = builder.Build();
 
-
-            app.MapPost("/register", async (RegisterRequest request, UserService userService, HttpContext context) =>
-            {
-                if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
-                {
-                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                    await context.Response.WriteAsync("Username and password are required.");
-                    return;
-                }
-
-                if (await userService.IsUserExistsAsync(request.Username))
-                {
-                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                    await context.Response.WriteAsync("User already exists.");
-                    return;
-                }
-
-                await userService.RegisterUserAsync(request);
-                context.Response.StatusCode = StatusCodes.Status201Created;
-                await context.Response.WriteAsync("User registered successfully.");
-            });
-
-            app.MapPost("/login", async (LoginRequest request, UserService userService, HttpContext context) =>
-            {
-                if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
-                {
-                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                    await context.Response.WriteAsync("Username and password are required.");
-                    return;
-                }
-
-                if (!await userService.ValidateUserAsync(request))
-                {
-                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                    await context.Response.WriteAsync("Invalid username or password.");
-                    return;
-                }
-
-                context.Response.StatusCode = StatusCodes.Status200OK;
-                await context.Response.WriteAsync("Login successful.");
-            });
+            // Map the endpoints
+            app.MapUserEndpoints();
 
             // Configure the HTTP request pipeline.
 
             app.UseHttpsRedirection();
 
             app.UseAuthorization();
-
 
             app.Run();
         }

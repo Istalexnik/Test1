@@ -1,15 +1,14 @@
 ﻿using Microsoft.Data.SqlClient;
 
-namespace WebApiHubTest1.Data
-{
+namespace WebApiHubTest1.Data;
     public class DBTools
     {
         private readonly string _connectionString;
 
         public DBTools(IConfiguration configuration)
         {
-            _connectionString = configuration.GetConnectionString("DefaultConnection")
-                ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+            _connectionString = configuration.GetConnectionString("WebApiHubTest1Connection")
+                ?? throw new InvalidOperationException("Connection string 'WebApiHubTest1Connection' not found.");
         }
         public int RunTextNonQuery(string text, List<SqlParameter>? lParam = null)
         {
@@ -82,4 +81,3 @@ namespace WebApiHubTest1.Data
 
 
     }
-}

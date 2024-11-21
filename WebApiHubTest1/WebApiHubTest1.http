@@ -5,8 +5,16 @@ Accept: application/json
 
 ###
 
-
 POST {{WebApiHubTest1_HostAddress}}/register/
+Accept: application/json
+Content-Type: application/json
+{
+"Username":"testuser5",
+"Password":"Test@1234"
+}
+###
+
+POST {{WebApiHubTest1_HostAddress}}/login/
 Accept: application/json
 Content-Type: application/json
 {
@@ -14,6 +22,4 @@ Content-Type: application/json
 "Password":"Test@1234"
 }
 ###
-
-
 
