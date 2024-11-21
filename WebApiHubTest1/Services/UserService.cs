@@ -1,4 +1,5 @@
 ﻿using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 using WebApiHubTest1.Models;
 
@@ -19,7 +20,8 @@ public class UserService
 
         public async Task<bool> IsUserExistsAsync(string username, SqlConnection connection, SqlTransaction transaction)
         {
-            var command = new SqlCommand("SELECT COUNT(*) FROM Users WHERE Username = @Username", connection, transaction);
+
+        var command = new SqlCommand("SELECT COUNT(*) FROM Users WHERE Username = @Username", connection, transaction);
             command.Parameters.AddWithValue("@Username", username);
 
         int count = Convert.ToInt32(await command.ExecuteScalarAsync());

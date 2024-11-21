@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Diagnostics;
+using System.Security.Claims;
 using System.Text;
 using WebApiHubTest1.Data;
 using WebApiHubTest1.Endpoints;
@@ -39,7 +41,9 @@ namespace WebApiHubTest1
 
 
             // Register JwtService
-            builder.Services.AddSingleton<JwtService>();
+            var jwtService = new JwtService(builder.Configuration);
+            builder.Services.AddSingleton(jwtService);
+
 
             // Configure Authentication and JWT
             builder.Services.AddAuthentication(options =>
@@ -49,17 +53,14 @@ namespace WebApiHubTest1
             })
             .AddJwtBearer(options =>
             {
-                // Use a factory to resolve JwtService from DI
-                options.Events = new JwtBearerEvents
-                {
-                    OnTokenValidated = context =>
-                    {
-                        var jwtService = context.HttpContext.RequestServices.GetRequiredService<JwtService>();
-                        context.Options.TokenValidationParameters = jwtService.GetTokenValidationParameters();
-                        return Task.CompletedTask;
-                    }
-                };
+                options.TokenValidationParameters = jwtService.GetTokenValidationParameters();
             });
+
+
+
+
+
+
 
 
 

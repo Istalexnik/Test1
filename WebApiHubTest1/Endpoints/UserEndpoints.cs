@@ -14,7 +14,7 @@ public static class UserEndpoints
 {
     public static void MapUserEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPost("/register", async (RegisterRequest request, UserService userService, HttpContext context) =>
+        endpoints.MapPost("/register", async (RegisterRequest request, UserService userService, ILogger<Program> logger, HttpContext context) =>
         {
             var validationResults = new List<ValidationResult>();
             var validationContext = new ValidationContext(request);
@@ -22,7 +22,11 @@ public static class UserEndpoints
             if (!Validator.TryValidateObject(request, validationContext, validationResults, true))
             {
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                await context.Response.WriteAsync("Validation failed: " + string.Join(", ", validationResults.Select(vr => vr.ErrorMessage)));
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    Message = "Validation failed",
+                    Errors = validationResults.Select(vr => vr.ErrorMessage)
+                });
                 return;
             }
 
@@ -34,6 +38,7 @@ public static class UserEndpoints
             }
             catch (Exception ex)
             {
+                logger.LogError(ex, "Error occurred while registering user.");
                 if (ex.Message == "User already exists.")
                 {
                     context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -49,65 +54,52 @@ public static class UserEndpoints
         .WithName("RegisterUser")
         .WithTags("User");
 
-        endpoints.MapPost("/login", async (LoginRequest request, UserService userService, IConfiguration configuration, HttpContext context) =>
+
+
+
+
+        endpoints.MapPost("/login", async (LoginRequest request, UserService userService, JwtService jwtService, HttpContext context) =>
         {
             if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
             {
-                context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                await context.Response.WriteAsync("Username and password are required.");
-                return;
+                return Results.BadRequest("Username and password are required.");
             }
 
             try
             {
                 if (!await userService.ValidateUserAsync(request))
                 {
-                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                    await context.Response.WriteAsync("Invalid username or password.");
-                    return;
+                    return Results.Unauthorized();
                 }
 
-                // Generate JWT token
-                var jwtSettings = configuration.GetSection("JwtSettings");
-                var secretKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]!));
-                var signingCredentials = new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256);
+                // Generate JWT token using JwtService
+                var tokenString = jwtService.GenerateToken(request.Username);
 
-                var claims = new List<Claim>
-                {
-                    new Claim(ClaimTypes.Name, request.Username)
-                    // Add additional claims if necessary
-                };
-
-                var tokenOptions = new JwtSecurityToken(
-                    issuer: jwtSettings["Issuer"],
-                    audience: jwtSettings["Audience"],
-                    claims: claims,
-                    expires: DateTime.UtcNow.AddMinutes(Convert.ToDouble(jwtSettings["ExpiryMinutes"])),
-                    signingCredentials: signingCredentials
-                );
-
-                var tokenString = new JwtSecurityTokenHandler().WriteToken(tokenOptions);
-
-                context.Response.StatusCode = StatusCodes.Status200OK;
-                await context.Response.WriteAsJsonAsync(new { Token = tokenString });
+                return Results.Ok(new { Token = tokenString });
             }
-            catch
+            catch (Exception)
             {
-                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-                await context.Response.WriteAsync("An error occurred during login.");
+                return Results.Problem("An error occurred during login.", statusCode: StatusCodes.Status500InternalServerError);
             }
         })
         .WithName("Login")
         .WithTags("User");
 
-        endpoints.MapGet("/userinfo", [Authorize] (ClaimsPrincipal user) =>
+
+
+        endpoints.MapGet("/userinfo", (ClaimsPrincipal user) =>
         {
-            var username = user.Identity?.Name;
-            return Results.Ok(new { Username = username });
+            var username = user.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? "Anonymous";
+            return Results.Ok(new UserInfoResponse { Username = username });
+
         })
+        .RequireAuthorization()
         .WithName("GetUserInfo")
-        .WithTags("User")
-        .RequireAuthorization();
+        .WithTags("User");
+
+
+
+
     }
 }
 
