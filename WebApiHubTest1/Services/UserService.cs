@@ -17,13 +17,10 @@ public class UserService
         _encryption = encryption;
     }
 
-    public async Task<bool> IsUserExistsAsync(string username)
-    {
-        using var connection = new SqlConnection(_connectionString);
-        await connection.OpenAsync();
-
-        var command = new SqlCommand("SELECT COUNT(*) FROM Users WHERE Username = @Username", connection);
-        command.Parameters.AddWithValue("@Username", username);
+        public async Task<bool> IsUserExistsAsync(string username, SqlConnection connection, SqlTransaction transaction)
+        {
+            var command = new SqlCommand("SELECT COUNT(*) FROM Users WHERE Username = @Username", connection, transaction);
+            command.Parameters.AddWithValue("@Username", username);
 
         int count = Convert.ToInt32(await command.ExecuteScalarAsync());
 
@@ -32,17 +29,42 @@ public class UserService
 
     public async Task RegisterUserAsync(RegisterRequest request)
     {
-        string encryptedPassword = _encryption.Encrypt(request.Password);
-
         using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        var command = new SqlCommand("INSERT INTO Users (Username, PasswordHash) VALUES (@Username, @PasswordHash)", connection);
-        command.Parameters.AddWithValue("@Username", request.Username);
-        command.Parameters.AddWithValue("@PasswordHash", encryptedPassword);
+        using var transaction = connection.BeginTransaction();
 
-        await command.ExecuteNonQueryAsync();
+        try
+        {
+            // Check if user exists within the transaction
+            if (await IsUserExistsAsync(request.Username, connection, transaction))
+            {
+                throw new Exception("User already exists.");
+            }
+
+            string encryptedPassword = _encryption.Encrypt(request.Password);
+
+            var command = new SqlCommand(
+                "INSERT INTO Users (Username, PasswordHash) VALUES (@Username, @PasswordHash)",
+                connection,
+                transaction
+            );
+            command.Parameters.AddWithValue("@Username", request.Username);
+            command.Parameters.AddWithValue("@PasswordHash", encryptedPassword);
+
+            await command.ExecuteNonQueryAsync();
+
+            // Commit the transaction
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            // Rollback the transaction
+            await transaction.RollbackAsync();
+            throw; // Re-throw the exception to be handled by the calling code
+        }
     }
+
 
     public async Task<bool> ValidateUserAsync(LoginRequest request)
     {

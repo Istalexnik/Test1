@@ -15,18 +15,27 @@ public static class UserEndpoints
                 await context.Response.WriteAsync("Username and password are required.");
                 return;
             }
-
-            if (await userService.IsUserExistsAsync(request.Username))
+            try
             {
-                context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                await context.Response.WriteAsync("User already exists.");
-                return;
+                await userService.RegisterUserAsync(request);
+                context.Response.StatusCode = StatusCodes.Status201Created;
+                await context.Response.WriteAsync("User registered successfully.");
             }
-
-            await userService.RegisterUserAsync(request);
-            context.Response.StatusCode = StatusCodes.Status201Created;
-            await context.Response.WriteAsync("User registered successfully.");
+            catch (Exception ex)
+            {
+                if (ex.Message == "User already exists.")
+                {
+                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                    await context.Response.WriteAsync("User already exists.");
+                }
+                else
+                {
+                    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                    await context.Response.WriteAsync("An error occurred during registration.");
+                }
+            }
         });
+
 
         endpoints.MapPost("/login", async (LoginRequest request, UserService userService, HttpContext context) =>
         {
