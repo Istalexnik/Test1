@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using System.Diagnostics;
-using System.Security.Claims;
 using System.Text;
 using WebApiHubTest1.Data;
 using WebApiHubTest1.Endpoints;
@@ -22,9 +20,8 @@ namespace WebApiHubTest1
             builder.Services.AddLogging();
 
             builder.Services.AddSingleton<Emailing>();      // Singleton for stateless email service
-            builder.Services.AddSingleton<Encryption>();   // Singleton for reusable encryption logic
-            builder.Services.AddScoped<DBTools>();        // Scoped for per-request database operations
-
+            builder.Services.AddSingleton<Encryption>();    // Singleton for reusable encryption logic
+            builder.Services.AddScoped<DBTools>();          // Scoped for per-request database operations
 
             // Add connection string from appsettings.json
             var connectionString = builder.Configuration.GetConnectionString("WebApiHubTest1Connection");
@@ -37,13 +34,12 @@ namespace WebApiHubTest1
                 return new UserService(connectionString!, logger, encryption); // Pass dependencies
             });
 
-
-
-
             // Register JwtService
-            var jwtService = new JwtService(builder.Configuration);
-            builder.Services.AddSingleton(jwtService);
+            builder.Services.AddSingleton<JwtService>();
 
+            // Get JWT settings from configuration
+            var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+            var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT SecretKey is missing in configuration.");
 
             // Configure Authentication and JWT
             builder.Services.AddAuthentication(options =>
@@ -53,19 +49,19 @@ namespace WebApiHubTest1
             })
             .AddJwtBearer(options =>
             {
-                options.TokenValidationParameters = jwtService.GetTokenValidationParameters();
+                var key = Encoding.UTF8.GetBytes(secretKey);
+
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = jwtSettings["Issuer"],
+                    ValidAudience = jwtSettings["Audience"],
+                    IssuerSigningKey = new SymmetricSecurityKey(key)
+                };
             });
-
-
-
-
-
-
-
-
-
-
-
 
             // Add Swagger services
             builder.Services.AddEndpointsApiExplorer();
@@ -86,19 +82,19 @@ namespace WebApiHubTest1
                 });
 
                 options.AddSecurityRequirement(new OpenApiSecurityRequirement
-            {
                 {
-                       new OpenApiSecurityScheme
-                       {
-                           Reference = new OpenApiReference
-                          {
-                             Type = ReferenceType.SecurityScheme,
-                             Id = "Bearer"
-                          }
-                       },
-                       new string[] {}
-                    }
-                });
+                    {
+                           new OpenApiSecurityScheme
+                           {
+                               Reference = new OpenApiReference
+                              {
+                                 Type = ReferenceType.SecurityScheme,
+                                 Id = "Bearer"
+                              }
+                           },
+                           new string[] {}
+                        }
+                    });
             });
 
             var app = builder.Build();

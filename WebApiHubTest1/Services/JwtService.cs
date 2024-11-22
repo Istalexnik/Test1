@@ -1,7 +1,9 @@
 ﻿using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
+using WebApiHubTest1.Models;
 
 namespace WebApiHubTest1.Services;
 
@@ -30,47 +32,43 @@ public class JwtService
         return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_secretKey));
     }
 
-    public TokenValidationParameters GetTokenValidationParameters()
-    {
-        return new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = _issuer,
-            ValidAudience = _audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_secretKey))
-        };
-    }
-
-
     public SigningCredentials GetSigningCredentials()
     {
         return new SigningCredentials(GetSymmetricSecurityKey(), SecurityAlgorithms.HmacSha256);
     }
 
-    public string GetIssuer() => _issuer;
-    public string GetAudience() => _audience;
-
-    public string GenerateToken(string username)
+    public string GenerateToken(string email)
     {
         var signingCredentials = GetSigningCredentials();
 
         var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.Name, username)
+            new Claim(ClaimTypes.Name, email)
             // Add additional claims if necessary
         };
 
         var tokenOptions = new JwtSecurityToken(
-            issuer: GetIssuer(),
-            audience: GetAudience(),
+            issuer: _issuer,
+            audience: _audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(_expiryMinutes),
+            expires: DateTime.Now.AddMinutes(_expiryMinutes),
             signingCredentials: signingCredentials
         );
 
         return new JwtSecurityTokenHandler().WriteToken(tokenOptions);
+    }
+
+    public RefreshToken GenerateRefreshToken()
+    {
+        var randomNumber = new byte[32];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(randomNumber);
+
+        return new RefreshToken
+        {
+            Token = Convert.ToBase64String(randomNumber),
+            ExpiresAt = DateTime.Now.AddDays(7), // Set refresh token expiration
+            CreatedAt = DateTime.Now
+        };
     }
 }

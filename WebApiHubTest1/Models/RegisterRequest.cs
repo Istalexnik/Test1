@@ -5,8 +5,8 @@ namespace WebApiHubTest1.Models;
 public class RegisterRequest
 {
     [Required]
-    [MinLength(3)]
-    public string Username { get; init; } = string.Empty;
+    [EmailAddress(ErrorMessage = "Invalid email address.")]
+    public string Email { get; init; } = string.Empty;
 
     [Required]
     [MinLength(5)]
