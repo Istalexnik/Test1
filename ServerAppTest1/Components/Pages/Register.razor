@@ -1,10 +1,9 @@
 ﻿@page "/register"
 @using System.ComponentModel.DataAnnotations
-@inherits LayoutComponentBase
+@using ServerAppTest1.Interfaces
 @inject HttpClient Http
 @inject NavigationManager NavigationManager
 @inject IAlertService AlertService
-
 
 <h3>Register</h3>
 
@@ -24,7 +23,6 @@
         <ValidationMessage For="@(() => registerModel.Password)" />
     </div>
 
-
     <button type="submit" class="btn btn-primary">Register</button>
 
     <p>Already have an account? <NavLink href="/login">Login here</NavLink></p>
@@ -32,7 +30,6 @@
 </EditForm>
 
 @code {
-
     private RegisterModel registerModel = new();
 
     private async Task HandleValidSubmit()
@@ -46,8 +43,9 @@
                 // Registration successful
                 await AlertService.ShowAlertAsync("Success", "Registration successful. Please check your email to confirm your account.", "OK");
 
-                // Navigate to email confirmation page
-                NavigationManager.NavigateTo("/email-confirmation");
+                // Navigate to email confirmation page with the email as a query parameter
+                var encodedEmail = Uri.EscapeDataString(registerModel.Email);
+                NavigationManager.NavigateTo($"/email-confirmation?email={encodedEmail}");
             }
             else
             {

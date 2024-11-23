@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ServerAppTest1;
+namespace ServerAppTest1.Interfaces;
 public interface IAlertService
 {
     Task ShowAlertAsync(string title, string message, string cancelButton);

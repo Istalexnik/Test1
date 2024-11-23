@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -15,6 +16,7 @@ public static class UserEndpoints
 {
     public static void MapUserEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        // Endpoints/UserEndpoints.cs
         endpoints.MapPost("/register", async (RegisterRequest request, UserService userService, Emailing emailing, ILogger<Program> logger) =>
         {
             var validationResults = new List<ValidationResult>();
@@ -37,7 +39,7 @@ public static class UserEndpoints
                 var confirmationCode = new Random().Next(100000, 999999).ToString();
 
                 // Set code expiration time (e.g., 15 minutes from now)
-                var codeExpiresAt = DateTime.Now.AddMinutes(15);
+                var codeExpiresAt = DateTime.UtcNow.AddMinutes(15);
 
                 // Save confirmation code and expiration time
                 await userService.SetEmailConfirmationCodeAsync(request.Email, confirmationCode, codeExpiresAt);
@@ -45,6 +47,8 @@ public static class UserEndpoints
                 // Send email with the code
                 var emailBody = GetEmailConfirmationHtmlTemplate(confirmationCode);
                 await emailing.SendEmailAsync(request.Email, "Email Confirmation", emailBody);
+
+                logger.LogInformation($"Sent confirmation code {confirmationCode} to {request.Email}");
 
                 return Results.Created("/register", "User registered successfully. Please check your email to confirm your account.");
             }
@@ -63,6 +67,7 @@ public static class UserEndpoints
         })
         .WithName("RegisterUser")
         .WithTags("User");
+
 
 
 
@@ -177,10 +182,12 @@ public static class UserEndpoints
 
 
 
-        endpoints.MapPost("/confirm-email", async (ConfirmEmailRequest request, UserService userService) =>
+
+        endpoints.MapPost("/confirm-email", async (ConfirmEmailRequest request, UserService userService, ILogger<Program> logger) =>
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.ConfirmationCode))
             {
+                logger.LogWarning("Confirmation failed: Missing Email or ConfirmationCode.");
                 return Results.BadRequest("Email and confirmation code are required.");
             }
 
@@ -188,15 +195,18 @@ public static class UserEndpoints
 
             if (result)
             {
+                logger.LogInformation($"Email confirmed successfully for: {request.Email}");
                 return Results.Ok("Email confirmed successfully.");
             }
             else
             {
+                logger.LogWarning($"Email confirmation failed for: {request.Email} with code: {request.ConfirmationCode}");
                 return Results.BadRequest("Invalid confirmation code or code has expired.");
             }
         })
-.WithName("ConfirmEmail")
-.WithTags("User");
+        .WithName("ConfirmEmail")
+        .WithTags("User");
+
 
 
 

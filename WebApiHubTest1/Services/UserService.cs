@@ -44,6 +44,7 @@ public class UserService
         return count > 0;
     }
 
+    // Services/UserService.cs
     public async Task RegisterUserAsync(RegisterRequest request)
     {
         using var connection = new SqlConnection(_connectionString);
@@ -53,34 +54,56 @@ public class UserService
 
         try
         {
-            // Check if user exists within the transaction
-            if (await IsUserExistsAsync(request.Email, connection, transaction))
+            // Retrieve the user details
+            var existingUser = await GetUserByEmailAsync(request.Email, connection, transaction);
+
+            if (existingUser != null)
             {
-                throw new Exception("User already exists.");
+                if (!existingUser.IsEmailConfirmed)
+                {
+                    // Delete the existing unconfirmed user
+                    var deleteCommand = new SqlCommand(
+                        "DELETE FROM tbl_users WHERE col_email = @Email",
+                        connection,
+                        transaction
+                    );
+                    deleteCommand.Parameters.AddWithValue("@Email", request.Email);
+
+                    await deleteCommand.ExecuteNonQueryAsync();
+                    _logger.LogInformation($"Deleted unconfirmed user with email: {request.Email}");
+                }
+                else
+                {
+                    throw new Exception("User already exists.");
+                }
             }
 
+            // Proceed with registration
             string encryptedPassword = _encryption.Encrypt(request.Password);
 
-            var command = new SqlCommand(
-                "INSERT INTO tbl_users (col_email, col_password_hash) VALUES (@Email, @PasswordHash)",
+            var insertCommand = new SqlCommand(
+                "INSERT INTO tbl_users (col_email, col_password_hash, col_is_email_confirmed) VALUES (@Email, @PasswordHash, 0)",
                 connection,
                 transaction
             );
-            command.Parameters.AddWithValue("@Email", request.Email);
-            command.Parameters.AddWithValue("@PasswordHash", encryptedPassword);
+            insertCommand.Parameters.AddWithValue("@Email", request.Email);
+            insertCommand.Parameters.AddWithValue("@PasswordHash", encryptedPassword);
 
-            await command.ExecuteNonQueryAsync();
+            await insertCommand.ExecuteNonQueryAsync();
+
+            _logger.LogInformation($"Registered new user with email: {request.Email}");
 
             // Commit the transaction
             await transaction.CommitAsync();
         }
         catch
         {
-            // Rollback the transaction
+            // Rollback the transaction in case of error
             await transaction.RollbackAsync();
             throw; // Re-throw the exception to be handled by the calling code
         }
     }
+
 
 
     public async Task<bool> ValidateUserAsync(LoginRequest request)
@@ -252,6 +275,7 @@ public class UserService
     }
 
 
+    // Services/UserService.cs
     public async Task<bool> ConfirmEmailAsync(string email, string code)
     {
         using var connection = new SqlConnection(_connectionString);
@@ -287,12 +311,17 @@ public class UserService
 
                 await updateCommand.ExecuteNonQueryAsync();
 
+                _logger.LogInformation($"Email confirmed for: {email}");
+
                 return true;
             }
         }
 
+        _logger.LogWarning($"Email confirmation failed for: {email} with code: {code}");
+
         return false;
     }
+
 
 
     public async Task<bool> IsEmailConfirmedAsync(string email)
@@ -464,6 +493,30 @@ public class UserService
     }
 
 
+    // Services/UserService.cs
+    public async Task<User?> GetUserByEmailAsync(string email, SqlConnection connection, SqlTransaction transaction)
+    {
+        var command = new SqlCommand(
+            "SELECT col_id, col_email, col_is_email_confirmed FROM tbl_users WHERE col_email = @Email",
+            connection,
+            transaction
+        );
+        command.Parameters.AddWithValue("@Email", email);
+
+        using var reader = await command.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new User
+            {
+                Id = reader.GetInt32(reader.GetOrdinal("col_id")),
+                Email = reader.GetString(reader.GetOrdinal("col_email")),
+                IsEmailConfirmed = reader.GetBoolean(reader.GetOrdinal("col_is_email_confirmed"))
+                // Initialize other fields as necessary
+            };
+        }
+
+        return null;
+    }
 
 
 }

@@ -1,9 +1,9 @@
 ﻿@page "/email-confirmation"
-@using System.ComponentModel.DataAnnotations
+@    using System.ComponentModel.DataAnnotations
+@    using Microsoft.AspNetCore.WebUtilities
 @inject HttpClient Http
 @inject NavigationManager NavigationManager
 @inject IAlertService AlertService
-
 
 <h3>Email Confirmation</h3>
 
@@ -11,23 +11,39 @@
     <DataAnnotationsValidator />
     <ValidationSummary />
 
-    <div class="mb-3">
-        <label for="email" class="form-label">Email</label>
-        <InputText id="email" class="form-control" @bind-Value="confirmationModel.Email" />
-        <ValidationMessage For="@(() => confirmationModel.Email)" Context="emailContext" />
-    </div>
+    <!-- Email field removed -->
 
     <div class="mb-3">
         <label for="code" class="form-label">Confirmation Code</label>
         <InputText id="code" class="form-control" @bind-Value="confirmationModel.Code" />
-        <ValidationMessage For="@(() => confirmationModel.Code)" Context="codeContext" />
+        <ValidationMessage For="@(() => confirmationModel.Code)" />
     </div>
 
     <button type="submit" class="btn btn-primary">Confirm Email</button>
+
+    <p>Email: @confirmationModel.Email</p>
+
 </EditForm>
 
 @code {
     private ConfirmationModel confirmationModel = new();
+
+    protected override void OnInitialized()
+    {
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("email", out var email))
+        {
+            confirmationModel.Email = email;
+            Console.WriteLine($"Email set to: {confirmationModel.Email}");
+        }
+        else
+        {
+            // Handle the case where the email is not provided
+            AlertService.ShowAlertAsync("Error", "Email is required for confirmation.", "OK");
+            NavigationManager.NavigateTo("/register");
+        }
+    }
+
 
     private async Task HandleValidSubmit()
     {
