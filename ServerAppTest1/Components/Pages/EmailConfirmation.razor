@@ -1,0 +1,67 @@
+﻿@page "/email-confirmation"
+@using System.ComponentModel.DataAnnotations
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+@inject IAlertService AlertService
+
+
+<h3>Email Confirmation</h3>
+
+<EditForm Model="@confirmationModel" OnValidSubmit="HandleValidSubmit">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="mb-3">
+        <label for="email" class="form-label">Email</label>
+        <InputText id="email" class="form-control" @bind-Value="confirmationModel.Email" />
+        <ValidationMessage For="@(() => confirmationModel.Email)" Context="emailContext" />
+    </div>
+
+    <div class="mb-3">
+        <label for="code" class="form-label">Confirmation Code</label>
+        <InputText id="code" class="form-control" @bind-Value="confirmationModel.Code" />
+        <ValidationMessage For="@(() => confirmationModel.Code)" Context="codeContext" />
+    </div>
+
+    <button type="submit" class="btn btn-primary">Confirm Email</button>
+</EditForm>
+
+@code {
+    private ConfirmationModel confirmationModel = new();
+
+    private async Task HandleValidSubmit()
+    {
+        try
+        {
+            var response = await Http.PostAsJsonAsync("confirm-email", confirmationModel);
+
+            if (response.IsSuccessStatusCode)
+            {
+                // Confirmation successful
+                await AlertService.ShowAlertAsync("Success", "Email confirmed successfully. You can now log in.", "OK");
+                // Navigate to login page
+                NavigationManager.NavigateTo("/login");
+            }
+            else
+            {
+                // Handle errors
+                var errorMessage = await response.Content.ReadAsStringAsync();
+                await AlertService.ShowAlertAsync("Error", $"Confirmation failed: {errorMessage}", "OK");
+            }
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"An error occurred: {ex.Message}", "OK");
+        }
+    }
+
+    public class ConfirmationModel
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = string.Empty;
+
+        [Required]
+        public string Code { get; set; } = string.Empty;
+    }
+}

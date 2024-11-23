@@ -1,0 +1,43 @@
+﻿@page "/dashboard"
+@inherits LayoutComponentBase
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager NavigationManager
+
+<h3>Dashboard</h3>
+
+<p>Welcome to your dashboard!</p>
+
+@code {
+    private HttpClient Http => HttpClientFactory.CreateClient("AuthorizedClient");
+
+    protected override async Task OnInitializedAsync()
+    {
+        var response = await Http.GetAsync("dashboard");
+
+        if (response.IsSuccessStatusCode)
+        {
+            // Handle successful response
+        }
+        else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            // Handle unauthorized access (e.g., refresh token)
+            var currentPage = Application.Current?.Windows.FirstOrDefault()?.Page as Page;
+            if (currentPage != null)
+            {
+                await currentPage.DisplayAlert("Session Expired", "Your session has expired. Please log in again.", "OK");
+            }
+
+            NavigationManager.NavigateTo("/login");
+        }
+        else
+        {
+            // Handle other errors
+            var errorMessage = await response.Content.ReadAsStringAsync();
+            var currentPage = Application.Current?.Windows.FirstOrDefault()?.Page as Page;
+            if (currentPage != null)
+            {
+                await currentPage.DisplayAlert("Error", $"An error occurred: {errorMessage}", "OK");
+            }
+        }
+    }
+}

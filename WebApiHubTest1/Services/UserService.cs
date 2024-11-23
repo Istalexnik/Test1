@@ -21,7 +21,7 @@ public class UserService
         public async Task<bool> IsUserExistsAsync(string email, SqlConnection connection, SqlTransaction transaction)
         {
 
-        var command = new SqlCommand("SELECT COUNT(*) FROM Users WHERE Email = @Email", connection, transaction);
+        var command = new SqlCommand("SELECT COUNT(*) FROM tbl_users WHERE col_email = @Email", connection, transaction);
             command.Parameters.AddWithValue("@Email", email);
 
         int count = Convert.ToInt32(await command.ExecuteScalarAsync());
@@ -36,7 +36,7 @@ public class UserService
         using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        var command = new SqlCommand("SELECT COUNT(*) FROM Users WHERE Email = @Email", connection);
+        var command = new SqlCommand("SELECT COUNT(*) FROM tbl_users WHERE col_email = @Email", connection);
         command.Parameters.AddWithValue("@Email", email);
 
         int count = Convert.ToInt32(await command.ExecuteScalarAsync());
@@ -62,7 +62,7 @@ public class UserService
             string encryptedPassword = _encryption.Encrypt(request.Password);
 
             var command = new SqlCommand(
-                "INSERT INTO Users (Email, PasswordHash) VALUES (@Email, @PasswordHash)",
+                "INSERT INTO tbl_users (col_email, col_password_hash) VALUES (@Email, @PasswordHash)",
                 connection,
                 transaction
             );
@@ -88,7 +88,7 @@ public class UserService
         using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        var command = new SqlCommand("SELECT PasswordHash FROM Users WHERE Email = @Email", connection);
+        var command = new SqlCommand("SELECT col_password_hash FROM tbl_users WHERE col_email = @Email", connection);
         command.Parameters.AddWithValue("@Email", request.Email);
 
         var result = await command.ExecuteScalarAsync();
@@ -110,7 +110,7 @@ public class UserService
         await connection.OpenAsync();
 
         var command = new SqlCommand(
-            "INSERT INTO RefreshTokens (UserId, Token, ExpiresAt, CreatedAt) VALUES (@UserId, @Token, @ExpiresAt, @CreatedAt)",
+            "INSERT INTO tbl_refresh_tokens (col_user_id, col_token, col_expires_at, col_created_at) VALUES (@UserId, @Token, @ExpiresAt, @CreatedAt)",
             connection
         );
 
@@ -130,7 +130,7 @@ public class UserService
         await connection.OpenAsync();
 
         var command = new SqlCommand(
-            "SELECT * FROM RefreshTokens WHERE Token = @Token",
+            "SELECT * FROM tbl_refresh_tokens WHERE col_token = @Token",
             connection
         );
 
@@ -142,13 +142,13 @@ public class UserService
         {
             return new RefreshToken
             {
-                Id = reader.GetInt32(reader.GetOrdinal("Id")),
-                UserId = reader.GetInt32(reader.GetOrdinal("UserId")),
-                Token = reader.GetString(reader.GetOrdinal("Token")),
-                ExpiresAt = reader.GetDateTime(reader.GetOrdinal("ExpiresAt")),
-                CreatedAt = reader.GetDateTime(reader.GetOrdinal("CreatedAt")),
-                RevokedAt = reader.IsDBNull(reader.GetOrdinal("RevokedAt")) ? null : reader.GetDateTime(reader.GetOrdinal("RevokedAt")),
-                ReplacedByToken = reader.IsDBNull(reader.GetOrdinal("ReplacedByToken")) ? null : reader.GetString(reader.GetOrdinal("ReplacedByToken"))
+                Id = reader.GetInt32(reader.GetOrdinal("col_id")),
+                UserId = reader.GetInt32(reader.GetOrdinal("col_user_id")),
+                Token = reader.GetString(reader.GetOrdinal("col_token")),
+                ExpiresAt = reader.GetDateTime(reader.GetOrdinal("col_expires_at")),
+                CreatedAt = reader.GetDateTime(reader.GetOrdinal("col_created_at")),
+                RevokedAt = reader.IsDBNull(reader.GetOrdinal("col_revoked_at")) ? null : reader.GetDateTime(reader.GetOrdinal("col_revoked_at")),
+                ReplacedByToken = reader.IsDBNull(reader.GetOrdinal("col_replaced_by_token")) ? null : reader.GetString(reader.GetOrdinal("col_replaced_by_token"))
             };
         }
 
@@ -163,7 +163,7 @@ public class UserService
         await connection.OpenAsync();
 
         var command = new SqlCommand(
-            "UPDATE RefreshTokens SET RevokedAt = @RevokedAt, ReplacedByToken = @ReplacedByToken WHERE Token = @Token",
+            "UPDATE tbl_refresh_tokens SET col_revoked_at = @RevokedAt, col_replaced_by_token = @ReplacedByToken WHERE col_token = @Token",
             connection
         );
 
@@ -181,7 +181,7 @@ public class UserService
         using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        var command = new SqlCommand("SELECT Id FROM Users WHERE Email = @Email", connection);
+        var command = new SqlCommand("SELECT col_id FROM tbl_users WHERE col_email = @Email", connection);
         command.Parameters.AddWithValue("@Email", email);
 
         var result = await command.ExecuteScalarAsync();
@@ -200,7 +200,7 @@ public class UserService
         using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        var command = new SqlCommand("SELECT Email FROM Users WHERE Id = @UserId", connection);
+        var command = new SqlCommand("SELECT col_email FROM tbl_users WHERE col_id = @UserId", connection);
         command.Parameters.AddWithValue("@UserId", userId);
 
         var result = await command.ExecuteScalarAsync();
@@ -220,7 +220,7 @@ public class UserService
         await connection.OpenAsync();
 
         var command = new SqlCommand(
-            "UPDATE RefreshTokens SET RevokedAt = @RevokedAt WHERE UserId = @UserId AND RevokedAt IS NULL",
+            "UPDATE tbl_refresh_tokens SET col_revoked_at = @RevokedAt WHERE col_user_id = @UserId AND col_revoked_at IS NULL",
             connection
         );
 
@@ -238,9 +238,9 @@ public class UserService
         await connection.OpenAsync();
 
         var command = new SqlCommand(
-            @"UPDATE Users 
-          SET EmailConfirmationCode = @Code, EmailConfirmationCodeExpiresAt = @ExpiresAt 
-          WHERE Email = @Email",
+            @"UPDATE tbl_users 
+          SET col_email_confirmation_code = @Code, col_email_confirmation_code_expires_at = @ExpiresAt 
+          WHERE col_email = @Email",
             connection
         );
 
@@ -258,9 +258,9 @@ public class UserService
         await connection.OpenAsync();
 
         var command = new SqlCommand(
-            @"SELECT EmailConfirmationCode, EmailConfirmationCodeExpiresAt 
-          FROM Users 
-          WHERE Email = @Email",
+            @"SELECT col_email_confirmation_code, col_email_confirmation_code_expires_at 
+          FROM tbl_users 
+          WHERE col_email = @Email",
             connection
         );
 
@@ -270,17 +270,17 @@ public class UserService
 
         if (await reader.ReadAsync())
         {
-            var storedCode = reader["EmailConfirmationCode"] as string;
-            var expiresAt = reader["EmailConfirmationCodeExpiresAt"] as DateTime?;
+            var storedCode = reader["col_email_confirmation_code"] as string;
+            var expiresAt = reader["col_email_confirmation_code_expires_at"] as DateTime?;
 
             if (storedCode == code && expiresAt >= DateTime.UtcNow)
             {
                 reader.Close();
 
                 var updateCommand = new SqlCommand(
-                    @"UPDATE Users 
-                  SET IsEmailConfirmed = 1, EmailConfirmationCode = NULL, EmailConfirmationCodeExpiresAt = NULL 
-                  WHERE Email = @Email",
+                    @"UPDATE tbl_users 
+                  SET col_is_email_confirmed = 1, col_email_confirmation_code = NULL, col_email_confirmation_code_expires_at = NULL 
+                  WHERE col_email = @Email",
                     connection
                 );
                 updateCommand.Parameters.AddWithValue("@Email", email);
@@ -301,9 +301,9 @@ public class UserService
         await connection.OpenAsync();
 
         var command = new SqlCommand(
-            @"SELECT IsEmailConfirmed 
-          FROM Users 
-          WHERE Email = @Email",
+            @"SELECT col_is_email_confirmed 
+          FROM tbl_users 
+          WHERE col_email = @Email",
             connection
         );
 
@@ -312,6 +312,155 @@ public class UserService
         var result = await command.ExecuteScalarAsync();
 
         return result != null && result != DBNull.Value && Convert.ToBoolean(result);
+    }
+
+
+
+    public async Task SetPasswordResetCodeAsync(string email, string code, DateTime expiresAt)
+    {
+        using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        var command = new SqlCommand(
+            @"UPDATE tbl_users 
+          SET col_password_reset_code = @Code, col_password_reset_code_expires_at = @ExpiresAt 
+          WHERE col_email = @Email",
+            connection
+        );
+
+        command.Parameters.AddWithValue("@Email", email);
+        command.Parameters.AddWithValue("@Code", code);
+        command.Parameters.AddWithValue("@ExpiresAt", expiresAt);
+
+        await command.ExecuteNonQueryAsync();
+    }
+
+
+    public async Task<bool> ResetPasswordAsync(string email, string code, string newPassword)
+    {
+        using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        var command = new SqlCommand(
+            @"SELECT col_password_reset_code, col_password_reset_code_expires_at 
+          FROM tbl_users 
+          WHERE col_email = @Email",
+            connection
+        );
+
+        command.Parameters.AddWithValue("@Email", email);
+
+        using var reader = await command.ExecuteReaderAsync();
+
+        if (await reader.ReadAsync())
+        {
+            var storedCode = reader["col_password_reset_code"] as string;
+            var expiresAt = reader["col_password_reset_code_expires_at"] as DateTime?;
+
+            if (storedCode == code && expiresAt >= DateTime.UtcNow)
+            {
+                reader.Close();
+
+                // Encrypt the new password
+                string encryptedPassword = _encryption.Encrypt(newPassword);
+
+                var updateCommand = new SqlCommand(
+                    @"UPDATE tbl_users 
+                  SET col_password_hash = @PasswordHash, 
+                      col_password_reset_code = NULL, 
+                      col_password_reset_code_expires_at = NULL 
+                  WHERE col_email = @Email",
+                    connection
+                );
+                updateCommand.Parameters.AddWithValue("@Email", email);
+                updateCommand.Parameters.AddWithValue("@PasswordHash", encryptedPassword);
+
+                await updateCommand.ExecuteNonQueryAsync();
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+
+    public async Task SetEmailChangeCodeAsync(string currentEmail, string newEmail, string code, DateTime expiresAt)
+    {
+        using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        var command = new SqlCommand(
+            @"UPDATE tbl_users 
+          SET col_new_email = @NewEmail, 
+              col_email_change_code = @Code, 
+              col_email_change_code_expires_at = @ExpiresAt 
+          WHERE col_email = @CurrentEmail",
+            connection
+        );
+
+        command.Parameters.AddWithValue("@CurrentEmail", currentEmail);
+        command.Parameters.AddWithValue("@NewEmail", newEmail);
+        command.Parameters.AddWithValue("@Code", code);
+        command.Parameters.AddWithValue("@ExpiresAt", expiresAt);
+
+        await command.ExecuteNonQueryAsync();
+    }
+
+
+
+    public async Task<bool> ConfirmEmailChangeAsync(string currentEmail, string code)
+    {
+        using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        var command = new SqlCommand(
+            @"SELECT col_new_email, col_email_change_code, col_email_change_code_expires_at 
+          FROM tbl_users 
+          WHERE col_email = @CurrentEmail",
+            connection
+        );
+
+        command.Parameters.AddWithValue("@CurrentEmail", currentEmail);
+
+        using var reader = await command.ExecuteReaderAsync();
+
+        if (await reader.ReadAsync())
+        {
+            var newEmail = reader["col_new_email"] as string;
+            var storedCode = reader["col_email_change_code"] as string;
+            var expiresAt = reader["col_email_change_code_expires_at"] as DateTime?;
+
+            if (storedCode == code && expiresAt >= DateTime.UtcNow && !string.IsNullOrEmpty(newEmail))
+            {
+                reader.Close();
+
+                // Check if new email is already in use
+                if (await IsUserExistsAsync(newEmail))
+                {
+                    return false; // New email is already taken
+                }
+
+                var updateCommand = new SqlCommand(
+                    @"UPDATE tbl_users 
+                  SET col_email = @NewEmail, 
+                      col_new_email = NULL, 
+                      col_email_change_code = NULL, 
+                      col_Email_change_code_expires_at = NULL 
+                  WHERE col_email = @CurrentEmail",
+                    connection
+                );
+                updateCommand.Parameters.AddWithValue("@CurrentEmail", currentEmail);
+                updateCommand.Parameters.AddWithValue("@NewEmail", newEmail);
+
+                await updateCommand.ExecuteNonQueryAsync();
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
 

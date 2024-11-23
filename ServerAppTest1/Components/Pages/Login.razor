@@ -1,0 +1,80 @@
+﻿@page "/login"
+@using System.ComponentModel.DataAnnotations
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+@inject IAlertService AlertService
+
+
+<h3>Login</h3>
+
+<EditForm Model="@loginModel" OnValidSubmit="HandleValidSubmit">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="mb-3">
+        <label for="email" class="form-label">Email</label>
+        <InputText id="email" class="form-control" @bind-Value="loginModel.Email" />
+        <ValidationMessage For="@(() => loginModel.Email)" />
+    </div>
+
+    <div class="mb-3">
+        <label for="password" class="form-label">Password</label>
+        <InputText id="password" type="password" class="form-control" @bind-Value="loginModel.Password" />
+        <ValidationMessage For="@(() => loginModel.Password)" />
+    </div>
+
+    <button type="submit" class="btn btn-primary">Login</button>
+
+    <p>Don't have an account? <NavLink href="/register">Register here</NavLink></p>
+</EditForm>
+
+@code {
+    private LoginModel loginModel = new();
+
+    private async Task HandleValidSubmit()
+    {
+        try
+        {
+            var response = await Http.PostAsJsonAsync("login", loginModel);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var loginResponse = await response.Content.ReadFromJsonAsync<LoginResponse>();
+
+                // Store tokens securely
+                await SecureStorage.SetAsync("AccessToken", loginResponse!.AccessToken);
+                await SecureStorage.SetAsync("RefreshToken", loginResponse.RefreshToken);
+
+                // Navigate to the dashboard or home page
+                await AlertService.ShowAlertAsync("Success", "Login successful.", "OK");
+                NavigationManager.NavigateTo("/dashboard");
+            }
+            else
+            {
+                // Handle errors
+                var errorMessage = await response.Content.ReadAsStringAsync();
+                await AlertService.ShowAlertAsync("Error", $"Login failed: {errorMessage}", "OK");
+            }
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"An error occurred: {ex.Message}", "OK");
+        }
+    }
+
+    public class LoginModel
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = string.Empty;
+
+        [Required]
+        public string Password { get; set; } = string.Empty;
+    }
+
+    public class LoginResponse
+    {
+        public string AccessToken { get; set; } = string.Empty;
+        public string RefreshToken { get; set; } = string.Empty;
+    }
+}

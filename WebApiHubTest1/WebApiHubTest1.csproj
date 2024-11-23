@@ -13,4 +13,13 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Data\Procs\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Data\Tables\*.sql" />
+  </ItemGroup>
+
+  
 </Project>
