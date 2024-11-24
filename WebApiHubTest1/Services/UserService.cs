@@ -282,9 +282,9 @@ public class UserService
         await connection.OpenAsync();
 
         var command = new SqlCommand(
-            @"SELECT col_email_confirmation_code, col_email_confirmation_code_expires_at 
-          FROM tbl_users 
-          WHERE col_email = @Email",
+            @"SELECT col_email_confirmation_code, col_email_confirmation_code_expires_at, col_failed_attempts, col_code_request_blocked_until 
+            FROM tbl_users 
+            WHERE col_email = @Email",
             connection
         );
 
@@ -296,14 +296,22 @@ public class UserService
         {
             var storedCode = reader["col_email_confirmation_code"] as string;
             var expiresAt = reader["col_email_confirmation_code_expires_at"] as DateTime?;
+            var failedAttempts = reader["col_failed_attempts"] != DBNull.Value ? Convert.ToInt32(reader["col_failed_attempts"]) : 0;
+            var blockedUntil = reader["col_code_request_blocked_until"] != DBNull.Value ? (DateTime?)reader["col_code_request_blocked_until"] : null;
 
-            if (storedCode == code && expiresAt >= DateTime.UtcNow)
+            // Check if the email is currently blocked
+            if (blockedUntil.HasValue && blockedUntil > DateTime.Now)
+            {
+                throw new Exception($"Code request is blocked until {blockedUntil.Value.ToString("g")}. Please try again later.");
+            }
+
+            if (storedCode == code && expiresAt >= DateTime.Now)
             {
                 reader.Close();
 
                 var updateCommand = new SqlCommand(
                     @"UPDATE tbl_users 
-                  SET col_is_email_confirmed = 1, col_email_confirmation_code = NULL, col_email_confirmation_code_expires_at = NULL 
+                  SET col_is_email_confirmed = 1, col_email_confirmation_code = NULL, col_email_confirmation_code_expires_at = NULL, col_failed_attempts = 0, col_code_request_blocked_until = NULL 
                   WHERE col_email = @Email",
                     connection
                 );
@@ -315,12 +323,88 @@ public class UserService
 
                 return true;
             }
+            else
+            {
+                // Increment failed attempts
+                failedAttempts++;
+                reader.Close();
+
+                var updateCommand = new SqlCommand(
+                    @"UPDATE tbl_users 
+                  SET col_failed_attempts = @FailedAttempts, 
+                      col_code_request_blocked_until = CASE 
+                          WHEN @FailedAttempts >= 3 THEN @BlockedUntil 
+                          ELSE col_code_request_blocked_until 
+                      END 
+                  WHERE col_email = @Email",
+                    connection
+                );
+
+                updateCommand.Parameters.AddWithValue("@Email", email);
+                updateCommand.Parameters.AddWithValue("@FailedAttempts", failedAttempts);
+                updateCommand.Parameters.AddWithValue("@BlockedUntil", DateTime.Now.AddHours(24));
+
+                await updateCommand.ExecuteNonQueryAsync();
+                return false;
+            }
         }
 
         _logger.LogWarning($"Email confirmation failed for: {email} with code: {code}");
 
         return false;
     }
+
+
+    public async Task<bool> IsBlockedAsync(string email)
+    {
+        using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        var command = new SqlCommand(
+            @"SELECT col_failed_attempts, col_code_request_blocked_until 
+      FROM tbl_users 
+      WHERE col_email = @Email",
+            connection
+        );
+
+        command.Parameters.AddWithValue("@Email", email);
+
+        using var reader = await command.ExecuteReaderAsync();
+
+        if (await reader.ReadAsync())
+        {
+            var failedAttempts = reader["col_failed_attempts"] != DBNull.Value ? Convert.ToInt32(reader["col_failed_attempts"]) : 0;
+            var blockedUntil = reader["col_code_request_blocked_until"] != DBNull.Value ? (DateTime?)reader["col_code_request_blocked_until"] : null;
+
+            // Reset FailedAttempts if the block period has expired
+            if (blockedUntil.HasValue && blockedUntil <= DateTime.Now)
+            {
+                reader.Close();
+
+                var resetCommand = new SqlCommand(
+                    @"UPDATE tbl_users 
+                  SET col_failed_attempts = 0, 
+                      col_code_request_blocked_until = NULL 
+                  WHERE col_email = @Email",
+                    connection
+                );
+
+                resetCommand.Parameters.AddWithValue("@Email", email);
+                await resetCommand.ExecuteNonQueryAsync();
+
+                return false; // Not blocked anymore
+            }
+
+            // If still within block period, return true (blocked)
+            if (blockedUntil.HasValue && blockedUntil > DateTime.Now)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
 
 
 
@@ -386,7 +470,7 @@ public class UserService
             var storedCode = reader["col_password_reset_code"] as string;
             var expiresAt = reader["col_password_reset_code_expires_at"] as DateTime?;
 
-            if (storedCode == code && expiresAt >= DateTime.UtcNow)
+            if (storedCode == code && expiresAt >= DateTime.Now)
             {
                 reader.Close();
 
@@ -461,7 +545,7 @@ public class UserService
             var storedCode = reader["col_email_change_code"] as string;
             var expiresAt = reader["col_email_change_code_expires_at"] as DateTime?;
 
-            if (storedCode == code && expiresAt >= DateTime.UtcNow && !string.IsNullOrEmpty(newEmail))
+            if (storedCode == code && expiresAt >= DateTime.Now && !string.IsNullOrEmpty(newEmail))
             {
                 reader.Close();
 

@@ -9,5 +9,7 @@ CREATE TABLE tbl_users (
     col_password_reset_code_expires_at DATETIME,
 	col_new_email NVARCHAR(255),
     col_email_change_code NVARCHAR(6),
-    col_email_change_code_expires_at DATETIME
+    col_email_change_code_expires_at DATETIME,
+    col_failed_attempts INT DEFAULT 0,
+    col_code_request_blocked_until DATETIME NULL
 );

@@ -38,7 +38,7 @@ public static class UserEndpoints
                 var confirmationCode = new Random().Next(100000, 999999).ToString();
 
                 // Set code expiration time (e.g., 15 minutes from now)
-                var codeExpiresAt = DateTime.UtcNow.AddMinutes(15);
+                var codeExpiresAt = DateTime.Now.AddMinutes(15);
 
                 // Save confirmation code and expiration time
                 await userService.SetEmailConfirmationCodeAsync(request.Email, confirmationCode, codeExpiresAt);
@@ -186,6 +186,12 @@ public static class UserEndpoints
                 return Results.BadRequest("Email and confirmation code are required.");
             }
 
+            // Check if the email is blocked
+            if (await userService.IsBlockedAsync(request.Email))
+            {
+                return Results.BadRequest("Too many failed attempts. You cannot request a new code for 24 hours.");
+            }
+
             var result = await userService.ConfirmEmailAsync(request.Email, request.ConfirmationCode);
 
             if (result)
@@ -210,6 +216,12 @@ public static class UserEndpoints
                 return Results.BadRequest("Email is required.");
             }
 
+            // Check if the email is blocked
+            if (await userService.IsBlockedAsync(request.Email))
+            {
+                return Results.BadRequest("Too many failed attempts. You cannot request a new code for 24 hours.");
+            }
+
             // Check if user exists
             if (!await userService.IsUserExistsAsync(request.Email))
             {
@@ -221,7 +233,7 @@ public static class UserEndpoints
             var confirmationCode = new Random().Next(100000, 999999).ToString();
 
             // Set code expiration time
-            var codeExpiresAt = DateTime.UtcNow.AddMinutes(15);
+            var codeExpiresAt = DateTime.Now.AddMinutes(15);
 
             // Save confirmation code and expiration time
             await userService.SetEmailConfirmationCodeAsync(request.Email, confirmationCode, codeExpiresAt);
@@ -246,6 +258,12 @@ public static class UserEndpoints
         // Forgot Password Endpoint
         endpoints.MapPost("/forgot-password", async (ForgotPasswordRequest request, UserService userService, Emailing emailing, EmailTemplateService templateService) =>
         {
+            // Check if the email is blocked
+            if (await userService.IsBlockedAsync(request.Email))
+            {
+                return Results.BadRequest("Too many failed attempts. You cannot request a new code for 24 hours.");
+            }
+
             if (!await userService.IsUserExistsAsync(request.Email))
             {
                 // For security, return the same response whether the email exists or not
@@ -256,7 +274,7 @@ public static class UserEndpoints
             var resetCode = new Random().Next(100000, 999999).ToString();
 
             // Set code expiration time (e.g., 15 minutes from now)
-            var codeExpiresAt = DateTime.UtcNow.AddMinutes(15);
+            var codeExpiresAt = DateTime.Now.AddMinutes(15);
 
             // Save reset code and expiration time
             await userService.SetPasswordResetCodeAsync(request.Email, resetCode, codeExpiresAt);
@@ -324,7 +342,7 @@ public static class UserEndpoints
             var confirmationCode = new Random().Next(100000, 999999).ToString();
 
             // Set code expiration time
-            var codeExpiresAt = DateTime.UtcNow.AddMinutes(15);
+            var codeExpiresAt = DateTime.Now.AddMinutes(15);
 
             // Save new email, confirmation code, and expiration time
             await userService.SetEmailChangeCodeAsync(currentEmail, request.NewEmail, confirmationCode, codeExpiresAt);
