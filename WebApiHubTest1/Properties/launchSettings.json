@@ -8,7 +8,7 @@
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
       "dotnetRunMessages": true,
-      "applicationUrl": "http://localhost:5125",
+      "applicationUrl": "http://192.168.50.238:5125",
       "sqlDebugging": true
     },
     "https": {
@@ -19,7 +19,7 @@
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
       "dotnetRunMessages": true,
-      "applicationUrl": "https://localhost:7078",
+      "applicationUrl": "https://192.168.50.238:7078",
       "sqlDebugging": true
     }
   },
