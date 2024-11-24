@@ -9,15 +9,14 @@ using System.Text;
 using WebApiHubTest1.Models;
 using WebApiHubTest1.Services;
 
-
 namespace WebApiHubTest1.Endpoints;
 
 public static class UserEndpoints
 {
     public static void MapUserEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        // Endpoints/UserEndpoints.cs
-        endpoints.MapPost("/register", async (RegisterRequest request, UserService userService, Emailing emailing, ILogger<Program> logger) =>
+        // Register Endpoint
+        endpoints.MapPost("/register", async (RegisterRequest request, UserService userService, Emailing emailing, EmailTemplateService templateService, ILogger<Program> logger) =>
         {
             var validationResults = new List<ValidationResult>();
             var validationContext = new ValidationContext(request);
@@ -44,8 +43,16 @@ public static class UserEndpoints
                 // Save confirmation code and expiration time
                 await userService.SetEmailConfirmationCodeAsync(request.Email, confirmationCode, codeExpiresAt);
 
+                // Prepare placeholders for the template
+                var placeholders = new Dictionary<string, string>
+                {
+                    { "ConfirmationCode", confirmationCode }
+                };
+
+                // Generate email body using the unified EmailTemplateService
+                var emailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.EmailConfirmation, placeholders);
+
                 // Send email with the code
-                var emailBody = GetEmailConfirmationHtmlTemplate(confirmationCode);
                 await emailing.SendEmailAsync(request.Email, "Email Confirmation", emailBody);
 
                 logger.LogInformation($"Sent confirmation code {confirmationCode} to {request.Email}");
@@ -68,12 +75,7 @@ public static class UserEndpoints
         .WithName("RegisterUser")
         .WithTags("User");
 
-
-
-
-
-
-
+        // Login Endpoint
         endpoints.MapPost("/login", async (LoginRequest request, UserService userService, JwtService jwtService, ILogger<Program> logger) =>
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
@@ -102,11 +104,11 @@ public static class UserEndpoints
 
                 // Generate JWT access token
                 var tokenString = jwtService.GenerateToken(request.Email);
-                logger.LogInformation($"{tokenString}");
+                logger.LogInformation($"Generated Access Token: {tokenString}");
 
                 // Generate refresh token
                 var refreshToken = jwtService.GenerateRefreshToken();
-                logger.LogInformation($"{refreshToken.Token}");
+                logger.LogInformation($"Generated Refresh Token: {refreshToken.Token}");
 
                 // Save refresh token
                 await userService.SaveRefreshTokenAsync(userId, refreshToken);
@@ -125,22 +127,17 @@ public static class UserEndpoints
         .WithName("Login")
         .WithTags("User");
 
-
-
-
+        // Dashboard Endpoint
         endpoints.MapGet("/Dashboard", (ClaimsPrincipal user) =>
         {
             var email = user.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? "Anonymous";
             return Results.Ok(new UserInfoResponse { Email = email });
-
         })
         .RequireAuthorization()
         .WithName("Dashboard")
         .WithTags("User");
 
-
-
-
+        // Refresh Token Endpoint
         endpoints.MapPost("/refresh-token", async (RefreshTokenRequest request, UserService userService, JwtService jwtService, ILogger<Program> logger) =>
         {
             if (string.IsNullOrWhiteSpace(request.RefreshToken))
@@ -152,12 +149,12 @@ public static class UserEndpoints
 
             if (storedToken == null || storedToken.ExpiresAt <= DateTime.Now || storedToken.RevokedAt != null)
             {
-                return Results.Unauthorized(); // We'll fix the message in the next point
+                return Results.Unauthorized();
             }
 
             // Generate a new refresh token
             var newRefreshToken = jwtService.GenerateRefreshToken();
-            logger.LogInformation($"{newRefreshToken}");
+            logger.LogInformation($"Generated New Refresh Token: {newRefreshToken.Token}");
 
             // Revoke the old refresh token
             await userService.RevokeRefreshTokenAsync(storedToken.Token, newRefreshToken.Token);
@@ -180,9 +177,7 @@ public static class UserEndpoints
         .WithName("RefreshToken")
         .WithTags("User");
 
-
-
-
+        // Confirm Email Endpoint
         endpoints.MapPost("/confirm-email", async (ConfirmEmailRequest request, UserService userService, ILogger<Program> logger) =>
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.ConfirmationCode))
@@ -207,10 +202,8 @@ public static class UserEndpoints
         .WithName("ConfirmEmail")
         .WithTags("User");
 
-
-
-
-        endpoints.MapPost("/resend-confirmation-code", async (ResendConfirmationCodeRequest request, UserService userService, Emailing emailing) =>
+        // Resend Confirmation Code Endpoint
+        endpoints.MapPost("/resend-confirmation-code", async (ResendConfirmationCodeRequest request, UserService userService, Emailing emailing, EmailTemplateService templateService) =>
         {
             if (string.IsNullOrWhiteSpace(request.Email))
             {
@@ -233,8 +226,16 @@ public static class UserEndpoints
             // Save confirmation code and expiration time
             await userService.SetEmailConfirmationCodeAsync(request.Email, confirmationCode, codeExpiresAt);
 
+            // Prepare placeholders for the template
+            var placeholders = new Dictionary<string, string>
+            {
+                { "ConfirmationCode", confirmationCode }
+            };
+
+            // Generate email body using the unified EmailTemplateService
+            var emailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.EmailConfirmation, placeholders);
+
             // Send email with the code
-            var emailBody = GetEmailConfirmationHtmlTemplate(confirmationCode);
             await emailing.SendEmailAsync(request.Email, "Email Confirmation", emailBody);
 
             return Results.Ok("If an account with that email exists, a new confirmation code has been sent.");
@@ -242,8 +243,8 @@ public static class UserEndpoints
         .WithName("ResendConfirmationCode")
         .WithTags("User");
 
-
-        endpoints.MapPost("/forgot-password", async (ForgotPasswordRequest request, UserService userService, Emailing emailing) =>
+        // Forgot Password Endpoint
+        endpoints.MapPost("/forgot-password", async (ForgotPasswordRequest request, UserService userService, Emailing emailing, EmailTemplateService templateService) =>
         {
             if (!await userService.IsUserExistsAsync(request.Email))
             {
@@ -260,17 +261,24 @@ public static class UserEndpoints
             // Save reset code and expiration time
             await userService.SetPasswordResetCodeAsync(request.Email, resetCode, codeExpiresAt);
 
+            // Prepare placeholders for the template
+            var placeholders = new Dictionary<string, string>
+            {
+                { "ResetCode", resetCode }
+            };
+
+            // Generate email body using the unified EmailTemplateService
+            var emailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.PasswordReset, placeholders);
+
             // Send email with the code
-            var emailBody = GetPasswordResetHtmlTemplate(resetCode);
             await emailing.SendEmailAsync(request.Email, "Password Reset Code", emailBody);
 
             return Results.Ok("If an account with that email exists, a password reset code has been sent.");
         })
-.WithName("ForgotPassword")
-.WithTags("User");
+        .WithName("ForgotPassword")
+        .WithTags("User");
 
-
-
+        // Reset Password Endpoint
         endpoints.MapPost("/reset-password", async (ResetPasswordRequest request, UserService userService, Encryption encryption) =>
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Code) || string.IsNullOrWhiteSpace(request.NewPassword))
@@ -289,12 +297,11 @@ public static class UserEndpoints
                 return Results.BadRequest("Invalid code or code has expired.");
             }
         })
-.WithName("ResetPassword")
-.WithTags("User");
+        .WithName("ResetPassword")
+        .WithTags("User");
 
-
-
-        endpoints.MapPost("/change-email", [Authorize] async (ChangeEmailRequest request, UserService userService, Emailing emailing, ClaimsPrincipal user) =>
+        // Change Email Endpoint
+        endpoints.MapPost("/change-email", [Authorize] async (ChangeEmailRequest request, UserService userService, Emailing emailing, EmailTemplateService templateService, ClaimsPrincipal user) =>
         {
             var currentEmail = user.Identity?.Name;
 
@@ -322,12 +329,24 @@ public static class UserEndpoints
             // Save new email, confirmation code, and expiration time
             await userService.SetEmailChangeCodeAsync(currentEmail, request.NewEmail, confirmationCode, codeExpiresAt);
 
-            // Send email with the code to the new email address
-            var newEmailBody = GetEmailChangeHtmlTemplate(confirmationCode);
+            // Prepare placeholders for the email change confirmation template
+            var placeholdersConfirmation = new Dictionary<string, string>
+            {
+                { "ConfirmationCode", confirmationCode }
+            };
+
+            // Generate email body for the new email address
+            var newEmailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.EmailChange, placeholdersConfirmation);
             await emailing.SendEmailAsync(request.NewEmail, "Email Change Confirmation", newEmailBody);
 
-            // Send notification to the old email address
-            var oldEmailBody = GetEmailChangeNotificationHtmlTemplate(request.NewEmail);
+            // Prepare placeholders for the notification to the old email address
+            var placeholdersNotification = new Dictionary<string, string>
+            {
+                { "NewEmail", request.NewEmail }
+            };
+
+            // Generate email body for the notification to the old email address
+            var oldEmailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.EmailChangeNotification, placeholdersNotification);
             await emailing.SendEmailAsync(currentEmail, "Email Change Requested", oldEmailBody);
 
             return Results.Ok("A confirmation code has been sent to your new email address. Please use it to confirm the change. A notification has been sent to your current email.");
@@ -335,10 +354,7 @@ public static class UserEndpoints
         .WithName("ChangeEmail")
         .WithTags("User");
 
-
-
-
-
+        // Confirm Email Change Endpoint
         endpoints.MapPost("/confirm-email-change", [Authorize] async (ConfirmEmailChangeRequest request, UserService userService, ClaimsPrincipal user) =>
         {
             var currentEmail = user.Identity?.Name;
@@ -364,105 +380,7 @@ public static class UserEndpoints
                 return Results.BadRequest("Invalid code or code has expired.");
             }
         })
-.WithName("ConfirmEmailChange")
-.WithTags("User");
-
-
-
-
+        .WithName("ConfirmEmailChange")
+        .WithTags("User");
     }
-
-
-
-
-
-
-    // Add this method to provide the HTML email template
-    private static string GetEmailConfirmationHtmlTemplate(string confirmationCode)
-    {
-        return $@"
-        <html>
-        <body style='font-family: Arial, sans-serif;'>
-            <div style='max-width: 600px; margin: auto; padding: 20px;'>
-                <h2 style='color: #333;'>Welcome to Our App!</h2>
-                <p>Thank you for registering. Please use the following code to confirm your email address:</p>
-                <div style='font-size: 24px; font-weight: bold; margin: 20px 0;'>
-                    {confirmationCode}
-                </div>
-                <p>This code will expire in 15 minutes.</p>
-                <p>If you did not register, please ignore this email.</p>
-                <p>Best regards,<br/>Our App Team</p>
-            </div>
-        </body>
-        </html>
-        ";
-    }
-
-
-    private static string GetPasswordResetHtmlTemplate(string resetCode)
-    {
-        return $@"
-    <html>
-    <body style='font-family: Arial, sans-serif;'>
-        <div style='max-width: 600px; margin: auto; padding: 20px;'>
-            <h2 style='color: #333;'>Password Reset Request</h2>
-            <p>You have requested to reset your password. Please use the following code to reset your password:</p>
-            <div style='font-size: 24px; font-weight: bold; margin: 20px 0;'>
-                {resetCode}
-            </div>
-            <p>This code will expire in 15 minutes.</p>
-            <p>If you did not request a password reset, please ignore this email.</p>
-            <p>Best regards,<br/>Our App Team</p>
-        </div>
-    </body>
-    </html>
-    ";
-    }
-
-
-
-    private static string GetEmailChangeHtmlTemplate(string confirmationCode)
-    {
-        return $@"
-    <html>
-    <body style='font-family: Arial, sans-serif;'>
-        <div style='max-width: 600px; margin: auto; padding: 20px;'>
-            <h2 style='color: #333;'>Confirm Your Email Change</h2>
-            <p>You have requested to change your email address. Please use the following code to confirm the change:</p>
-            <div style='font-size: 24px; font-weight: bold; margin: 20px 0;'>
-                {confirmationCode}
-            </div>
-            <p>This code will expire in 15 minutes.</p>
-            <p>If you did not request this change, please contact support immediately.</p>
-            <p>Best regards,<br/>Our App Team</p>
-        </div>
-    </body>
-    </html>
-    ";
-    }
-
-
-
-    private static string GetEmailChangeNotificationHtmlTemplate(string newEmail)
-    {
-        return $@"
-    <html>
-    <body style='font-family: Arial, sans-serif;'>
-        <div style='max-width: 600px; margin: auto; padding: 20px;'>
-            <h2 style='color: #333;'>Email Change Requested</h2>
-            <p>We received a request to change the email address associated with your account to <strong>{newEmail}</strong>.</p>
-            <p>If you initiated this request, no further action is needed.</p>
-            <p><strong>If you did not request this change, please contact our support team immediately.</strong></p>
-            <p>Best regards,<br/>Our App Team</p>
-        </div>
-    </body>
-    </html>
-    ";
-    }
-
-
-
-
 }
-
-

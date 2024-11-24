@@ -22,6 +22,7 @@ namespace WebApiHubTest1
             builder.Services.AddSingleton<Emailing>();      // Singleton for stateless email service
             builder.Services.AddSingleton<Encryption>();    // Singleton for reusable encryption logic
             builder.Services.AddScoped<DBTools>();          // Scoped for per-request database operations
+            builder.Services.AddSingleton<EmailTemplateService>();
 
             // Add connection string from appsettings.json
             var connectionString = builder.Configuration.GetConnectionString("WebApiHubTest1Connection");
