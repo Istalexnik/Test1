@@ -1,6 +1,10 @@
 ﻿using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
-namespace WebApiHubTest1.Data;
+namespace WebApiHubTest1.Data
+{
     public class DBTools
     {
         private readonly string _connectionString;
@@ -10,74 +14,91 @@ namespace WebApiHubTest1.Data;
             _connectionString = configuration.GetConnectionString("WebApiHubTest1Connection")
                 ?? throw new InvalidOperationException("Connection string 'WebApiHubTest1Connection' not found.");
         }
-        public int RunTextNonQuery(string text, List<SqlParameter>? lParam = null)
+
+        // Asynchronous method for executing text queries that do not return results
+        public async Task<int> RunTextNonQueryAsync(string text, List<SqlParameter>? parameters = null)
         {
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                using (SqlCommand cmd = new SqlCommand(text, con))
-                {
-                    cmd.CommandType = System.Data.CommandType.Text;
-                    if (lParam != null)
-                    {
-                        cmd.Parameters.AddRange(lParam.ToArray());
-                    }
-                    con.Open();
-                    return cmd.ExecuteNonQuery();
-                }
-            }
+            using var connection = new SqlConnection(_connectionString);
+            using var command = new SqlCommand(text, connection);
+            command.CommandType = System.Data.CommandType.Text;
+
+            if (parameters != null)
+                command.Parameters.AddRange(parameters.ToArray());
+
+            await connection.OpenAsync();
+            return await command.ExecuteNonQueryAsync();
         }
 
-
-        public int RunProcNonQuery(string proc, List<SqlParameter>? lParam = null)
+        // Asynchronous method for executing stored procedures that do not return results
+        public async Task<int> RunProcNonQueryAsync(string procName, List<SqlParameter>? parameters = null)
         {
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                using (SqlCommand cmd = new SqlCommand(proc, con))
-                {
-                    cmd.CommandType = System.Data.CommandType.StoredProcedure;
-                    if (lParam != null)
-                    {
-                        cmd.Parameters.AddRange(lParam.ToArray());
-                    }
-                    con.Open();
-                    return cmd.ExecuteNonQuery();
-                }
-            }
+            using var connection = new SqlConnection(_connectionString);
+            using var command = new SqlCommand(procName, connection);
+            command.CommandType = System.Data.CommandType.StoredProcedure;
+
+            if (parameters != null)
+                command.Parameters.AddRange(parameters.ToArray());
+
+            await connection.OpenAsync();
+            return await command.ExecuteNonQueryAsync();
         }
 
-
-        public object RunProcScalar(string proc, List<SqlParameter>? lParam = null)
+        // Asynchronous method for executing text queries that return a scalar value
+        public async Task<object?> RunTextScalarAsync(string text, List<SqlParameter>? parameters = null)
         {
-            using (SqlConnection con = new SqlConnection(_connectionString))
-            {
-                using (SqlCommand cmd = new SqlCommand(proc, con))
-                {
-                    cmd.CommandType = System.Data.CommandType.StoredProcedure;
-                    if (lParam != null)
-                    {
-                        cmd.Parameters.AddRange(lParam.ToArray());
-                    }
-                    con.Open();
-                    return cmd.ExecuteScalar();
-                }
-            }
+            using var connection = new SqlConnection(_connectionString);
+            using var command = new SqlCommand(text, connection);
+            command.CommandType = System.Data.CommandType.Text;
+
+            if (parameters != null)
+                command.Parameters.AddRange(parameters.ToArray());
+
+            await connection.OpenAsync();
+            return await command.ExecuteScalarAsync();
         }
 
-
-        public SqlDataReader RunProcReader(string proc, List<SqlParameter>? lParam = null)
+        // Asynchronous method for executing stored procedures that return a scalar value
+        public async Task<object?> RunProcScalarAsync(string procName, List<SqlParameter>? parameters = null)
         {
-            SqlConnection con = new SqlConnection(_connectionString);
-            using (SqlCommand cmd = new SqlCommand(proc, con))
-            {
-                cmd.CommandType = System.Data.CommandType.StoredProcedure;
-                if (lParam != null)
-                {
-                    cmd.Parameters.AddRange(lParam.ToArray());
-                }
-                con.Open();
-                return cmd.ExecuteReader(System.Data.CommandBehavior.CloseConnection);
-            }
+            using var connection = new SqlConnection(_connectionString);
+            using var command = new SqlCommand(procName, connection);
+            command.CommandType = System.Data.CommandType.StoredProcedure;
+
+            if (parameters != null)
+                command.Parameters.AddRange(parameters.ToArray());
+
+            await connection.OpenAsync();
+            return await command.ExecuteScalarAsync();
         }
 
+        // Asynchronous method for executing text queries that return a data reader
+        public async Task<SqlDataReader> RunTextReaderAsync(string text, List<SqlParameter>? parameters = null)
+        {
+            var connection = new SqlConnection(_connectionString);
+            var command = new SqlCommand(text, connection);
+            command.CommandType = System.Data.CommandType.Text;
 
+            if (parameters != null)
+                command.Parameters.AddRange(parameters.ToArray());
+
+            await connection.OpenAsync();
+            var reader = await command.ExecuteReaderAsync(System.Data.CommandBehavior.CloseConnection);
+            return reader;
+        }
+
+        // Asynchronous method for executing stored procedures that return a data reader
+        public async Task<SqlDataReader> RunProcReaderAsync(string procName, List<SqlParameter>? parameters = null)
+        {
+            var connection = new SqlConnection(_connectionString);
+            var command = new SqlCommand(procName, connection);
+            command.CommandType = System.Data.CommandType.StoredProcedure;
+
+            if (parameters != null)
+                command.Parameters.AddRange(parameters.ToArray());
+
+            await connection.OpenAsync();
+            var reader = await command.ExecuteReaderAsync(System.Data.CommandBehavior.CloseConnection);
+            return reader;
+        }
     }
+}

@@ -19,21 +19,14 @@ namespace WebApiHubTest1
             builder.Services.AddAuthorization();
             builder.Services.AddLogging();
 
-            builder.Services.AddSingleton<Emailing>();      // Singleton for stateless email service
+            builder.Services.AddSingleton<EmailService>();      // Singleton for stateless email service
             builder.Services.AddSingleton<Encryption>();    // Singleton for reusable encryption logic
             builder.Services.AddScoped<DBTools>();          // Scoped for per-request database operations
-            builder.Services.AddSingleton<EmailTemplateService>();
 
             // Add connection string from appsettings.json
             var connectionString = builder.Configuration.GetConnectionString("WebApiHubTest1Connection");
 
-            // Register UserService with Dependency Injection
-            builder.Services.AddSingleton<UserService>(sp =>
-            {
-                var encryption = sp.GetRequiredService<Encryption>();
-                var logger = sp.GetRequiredService<ILogger<UserService>>(); // Resolve ILogger
-                return new UserService(connectionString!, logger, encryption); // Pass dependencies
-            });
+            builder.Services.AddScoped<UserService>();
 
             // Register JwtService
             builder.Services.AddSingleton<JwtService>();

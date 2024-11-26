@@ -1,404 +1,469 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿// UserEndpoints.cs
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
-using Microsoft.IdentityModel.Tokens;
-using System.ComponentModel.DataAnnotations;
-using System.Diagnostics;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using WebApiHubTest1.Models;
 using WebApiHubTest1.Services;
 
-namespace WebApiHubTest1.Endpoints;
-
-public static class UserEndpoints
+namespace WebApiHubTest1.Endpoints
 {
-    public static void MapUserEndpoints(this IEndpointRouteBuilder endpoints)
+    public static class UserEndpoints
     {
-        // Register Endpoint
-        endpoints.MapPost("/register", async (RegisterRequest request, UserService userService, Emailing emailing, EmailTemplateService templateService, ILogger<Program> logger) =>
+        public static void MapUserEndpoints(this IEndpointRouteBuilder endpoints)
         {
-            var validationResults = new List<ValidationResult>();
-            var validationContext = new ValidationContext(request);
-
-            if (!Validator.TryValidateObject(request, validationContext, validationResults, true))
+            // Register Endpoint
+            endpoints.MapPost("/register", async (RegisterRequest request, UserService userService, EmailService emailService, ILogger<Program> logger) =>
             {
-                return Results.BadRequest(new
+                try
                 {
-                    Message = "Validation failed",
-                    Errors = validationResults.Select(vr => vr.ErrorMessage)
-                });
-            }
+                    await userService.RegisterUserAsync(request);
 
-            try
-            {
-                await userService.RegisterUserAsync(request);
+                    // Generate confirmation code
+                    var confirmationCode = new Random().Next(100000, 999999).ToString();
 
-                // Generate confirmation code
-                var confirmationCode = new Random().Next(100000, 999999).ToString();
+                    // Set code expiration time (e.g., 15 minutes from now)
+                    var codeExpiresAt = DateTime.Now.AddMinutes(15);
 
-                // Set code expiration time (e.g., 15 minutes from now)
-                var codeExpiresAt = DateTime.Now.AddMinutes(15);
+                    // Save confirmation code and expiration time
+                    await userService.SetEmailConfirmationCodeAsync(request.Email, confirmationCode, codeExpiresAt);
 
-                // Save confirmation code and expiration time
-                await userService.SetEmailConfirmationCodeAsync(request.Email, confirmationCode, codeExpiresAt);
+                    // Prepare placeholders for the template
+                    var placeholders = new Dictionary<string, string>
+                    {
+                        { "ConfirmationCode", confirmationCode }
+                    };
 
-                // Prepare placeholders for the template
-                var placeholders = new Dictionary<string, string>
-                {
-                    { "ConfirmationCode", confirmationCode }
-                };
+                    // Send email with the code using EmailService
+                    await emailService.SendEmailAsync(
+                        recipientEmail: request.Email,
+                        subject: "Email Confirmation",
+                        templateType: EmailService.EmailTemplateType.EmailConfirmation,
+                        placeholders: placeholders
+                    );
 
-                // Generate email body using the unified EmailTemplateService
-                var emailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.EmailConfirmation, placeholders);
+                    logger.LogInformation($"Sent confirmation code to {request.Email}");
 
-                // Send email with the code
-                await emailing.SendEmailAsync(request.Email, "Email Confirmation", emailBody);
-
-                logger.LogInformation($"Sent confirmation code {confirmationCode} to {request.Email}");
-
-                return Results.Created("/register", "User registered successfully. Please check your email to confirm your account.");
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error occurred while registering user.");
-                if (ex.Message == "User already exists.")
-                {
-                    return Results.BadRequest("User already exists.");
+                    return Results.Created("/register", "User registered successfully. Please check your email to confirm your account.");
                 }
-                else
+                catch (Exception ex)
                 {
-                    return Results.Problem("An error occurred during registration.", statusCode: StatusCodes.Status500InternalServerError);
+                    logger.LogError(ex, "Error occurred during registration.");
+                    if (ex.Message == "User already exists.")
+                    {
+                        return Results.BadRequest("User already exists.");
+                    }
+                    else
+                    {
+                        return Results.Problem("An error occurred during registration.", statusCode: StatusCodes.Status500InternalServerError);
+                    }
                 }
-            }
-        })
-        .WithName("RegisterUser")
-        .WithTags("User");
+            })
+            .WithName("RegisterUser")
+            .WithTags("User");
 
-        // Login Endpoint
-        endpoints.MapPost("/login", async (LoginRequest request, UserService userService, JwtService jwtService, ILogger<Program> logger) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+            // Login Endpoint
+            endpoints.MapPost("/login", async (LoginRequest request, UserService userService, JwtService jwtService, ILogger<Program> logger) =>
             {
-                return Results.BadRequest("Email and password are required.");
-            }
-
-            try
-            {
-                if (!await userService.ValidateUserAsync(request))
+                try
                 {
-                    return Results.Unauthorized();
+                    if (!await userService.ValidateUserAsync(request))
+                    {
+                        return Results.Unauthorized();
+                    }
+
+                    // Check if email is confirmed
+                    if (!await userService.IsEmailConfirmedAsync(request.Email))
+                    {
+                        return Results.BadRequest("Email is not confirmed. Please confirm your email before logging in.");
+                    }
+
+                    // Get the user's ID 
+                    int userId = await userService.GetUserIdAsync(request.Email);
+
+                    // Revoke all existing refresh tokens for the user
+                    await userService.RevokeAllRefreshTokensAsync(userId);
+
+                    // Generate JWT access token
+                    var tokenString = jwtService.GenerateToken(request.Email);
+                    logger.LogInformation($"Generated Access Token for {request.Email}");
+
+                    // Generate refresh token
+                    var refreshToken = jwtService.GenerateRefreshToken();
+                    logger.LogInformation($"Generated Refresh Token for {request.Email}");
+
+                    // Save refresh token
+                    await userService.SaveRefreshTokenAsync(userId, refreshToken);
+
+                    return Results.Ok(new
+                    {
+                        AccessToken = tokenString,
+                        RefreshToken = refreshToken.Token
+                    });
                 }
-
-                // Check if email is confirmed
-                if (!await userService.IsEmailConfirmedAsync(request.Email))
+                catch (Exception ex)
                 {
-                    return Results.BadRequest("Email is not confirmed. Please confirm your email before logging in.");
+                    logger.LogError(ex, "Error occurred during login.");
+                    return Results.Problem("An error occurred during login.", statusCode: StatusCodes.Status500InternalServerError);
                 }
+            })
+            .WithName("Login")
+            .WithTags("User");
 
-                // Get the user's ID 
-                int userId = await userService.GetUserIdAsync(request.Email);
+            // Dashboard Endpoint
+            endpoints.MapGet("/dashboard", [Authorize] (ClaimsPrincipal user) =>
+            {
+                var email = user.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? "Anonymous";
+                return Results.Ok(new UserInfoResponse { Email = email });
+            })
+            .WithName("Dashboard")
+            .WithTags("User");
 
-                // Revoke all existing refresh tokens for the user
-                await userService.RevokeAllRefreshTokensAsync(userId);
-
-                // Generate JWT access token
-                var tokenString = jwtService.GenerateToken(request.Email);
-                logger.LogInformation($"Generated Access Token: {tokenString}");
-
-                // Generate refresh token
-                var refreshToken = jwtService.GenerateRefreshToken();
-                logger.LogInformation($"Generated Refresh Token: {refreshToken.Token}");
-
-                // Save refresh token
-                await userService.SaveRefreshTokenAsync(userId, refreshToken);
-
-                return Results.Ok(new
+            // Refresh Token Endpoint
+            endpoints.MapPost("/refresh-token", async (RefreshTokenRequest request, UserService userService, JwtService jwtService, ILogger<Program> logger) =>
+            {
+                try
                 {
-                    AccessToken = tokenString,
-                    RefreshToken = refreshToken.Token
-                });
-            }
-            catch
+                    if (string.IsNullOrWhiteSpace(request.RefreshToken))
+                    {
+                        return Results.BadRequest("Refresh token is required.");
+                    }
+
+                    var storedToken = await userService.GetRefreshTokenAsync(request.RefreshToken);
+
+                    if (storedToken == null || storedToken.ExpiresAt <= DateTime.Now || storedToken.RevokedAt != null)
+                    {
+                        return Results.Unauthorized();
+                    }
+
+                    // Generate a new refresh token
+                    var newRefreshToken = jwtService.GenerateRefreshToken();
+                    logger.LogInformation($"Generated New Refresh Token for User ID: {storedToken.UserId}");
+
+                    // Revoke the old refresh token
+                    await userService.RevokeRefreshTokenAsync(storedToken.Token, newRefreshToken.Token);
+
+                    // Save the new refresh token
+                    await userService.SaveRefreshTokenAsync(storedToken.UserId, newRefreshToken);
+
+                    // Get the user's email
+                    var email = await userService.GetEmailByIdAsync(storedToken.UserId);
+
+                    // Generate new access token
+                    var newAccessToken = jwtService.GenerateToken(email);
+
+                    return Results.Ok(new
+                    {
+                        AccessToken = newAccessToken,
+                        RefreshToken = newRefreshToken.Token
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error occurred during token refresh.");
+                    return Results.Problem("An error occurred during token refresh.", statusCode: StatusCodes.Status500InternalServerError);
+                }
+            })
+            .WithName("RefreshToken")
+            .WithTags("User");
+
+            // Confirm Email Endpoint
+            endpoints.MapPost("/confirm-email", async (ConfirmEmailRequest request, UserService userService, ILogger<Program> logger) =>
             {
-                return Results.Problem("An error occurred during login.", statusCode: StatusCodes.Status500InternalServerError);
-            }
-        })
-        .WithName("Login")
-        .WithTags("User");
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.ConfirmationCode))
+                    {
+                        return Results.BadRequest("Email and confirmation code are required.");
+                    }
 
-        // Dashboard Endpoint
-        endpoints.MapGet("/Dashboard", (ClaimsPrincipal user) =>
-        {
-            var email = user.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? "Anonymous";
-            return Results.Ok(new UserInfoResponse { Email = email });
-        })
-        .RequireAuthorization()
-        .WithName("Dashboard")
-        .WithTags("User");
+                    // Check if the email is blocked
+                    if (await userService.IsBlockedAsync(request.Email))
+                    {
+                        return Results.BadRequest("Too many failed attempts. You cannot request a new code for 24 hours.");
+                    }
 
-        // Refresh Token Endpoint
-        endpoints.MapPost("/refresh-token", async (RefreshTokenRequest request, UserService userService, JwtService jwtService, ILogger<Program> logger) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.RefreshToken))
+                    var result = await userService.ConfirmEmailAsync(request.Email, request.ConfirmationCode);
+
+                    if (result)
+                    {
+                        logger.LogInformation($"Email confirmed successfully for: {request.Email}");
+                        return Results.Ok("Email confirmed successfully.");
+                    }
+                    else
+                    {
+                        logger.LogWarning($"Email confirmation failed for: {request.Email} with code: {request.ConfirmationCode}");
+                        return Results.BadRequest("Invalid confirmation code or code has expired.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error occurred during email confirmation.");
+                    return Results.Problem("An error occurred during email confirmation.", statusCode: StatusCodes.Status500InternalServerError);
+                }
+            })
+            .WithName("ConfirmEmail")
+            .WithTags("User");
+
+            // Resend Confirmation Code Endpoint
+            endpoints.MapPost("/resend-confirmation-code", async (ResendConfirmationCodeRequest request, UserService userService, EmailService emailService, ILogger<Program> logger) =>
             {
-                return Results.BadRequest("Refresh token is required.");
-            }
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(request.Email))
+                    {
+                        return Results.BadRequest("Email is required.");
+                    }
 
-            var storedToken = await userService.GetRefreshTokenAsync(request.RefreshToken);
+                    // Check if the email is blocked
+                    if (await userService.IsBlockedAsync(request.Email))
+                    {
+                        return Results.BadRequest("Too many failed attempts. You cannot request a new code for 24 hours.");
+                    }
 
-            if (storedToken == null || storedToken.ExpiresAt <= DateTime.Now || storedToken.RevokedAt != null)
+                    // Check if user exists
+                    if (!await userService.IsUserExistsAsync(request.Email))
+                    {
+                        // Return generic response
+                        return Results.Ok("If an account with that email exists, a new confirmation code has been sent.");
+                    }
+
+                    // Generate new confirmation code
+                    var confirmationCode = new Random().Next(100000, 999999).ToString();
+
+                    // Set code expiration time
+                    var codeExpiresAt = DateTime.Now.AddMinutes(15);
+
+                    // Save confirmation code and expiration time
+                    await userService.SetEmailConfirmationCodeAsync(request.Email, confirmationCode, codeExpiresAt);
+
+                    // Prepare placeholders for the template
+                    var placeholders = new Dictionary<string, string>
+                    {
+                        { "ConfirmationCode", confirmationCode }
+                    };
+
+                    // Send email with the code using EmailService
+                    await emailService.SendEmailAsync(
+                        recipientEmail: request.Email,
+                        subject: "Email Confirmation",
+                        templateType: EmailService.EmailTemplateType.EmailConfirmation,
+                        placeholders: placeholders
+                    );
+
+                    logger.LogInformation($"Resent confirmation code to {request.Email}");
+
+                    return Results.Ok("If an account with that email exists, a new confirmation code has been sent.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error occurred during resending confirmation code.");
+                    return Results.Problem("An error occurred during resending confirmation code.", statusCode: StatusCodes.Status500InternalServerError);
+                }
+            })
+            .WithName("ResendConfirmationCode")
+            .WithTags("User");
+
+            // Forgot Password Endpoint
+            endpoints.MapPost("/forgot-password", async (ForgotPasswordRequest request, UserService userService, EmailService emailService, ILogger<Program> logger) =>
             {
-                return Results.Unauthorized();
-            }
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(request.Email))
+                    {
+                        return Results.BadRequest("Email is required.");
+                    }
 
-            // Generate a new refresh token
-            var newRefreshToken = jwtService.GenerateRefreshToken();
-            logger.LogInformation($"Generated New Refresh Token: {newRefreshToken.Token}");
+                    // Check if the email is blocked
+                    if (await userService.IsBlockedAsync(request.Email))
+                    {
+                        return Results.BadRequest("Too many failed attempts. You cannot request a new code for 24 hours.");
+                    }
 
-            // Revoke the old refresh token
-            await userService.RevokeRefreshTokenAsync(storedToken.Token, newRefreshToken.Token);
+                    // Check if user exists
+                    if (!await userService.IsUserExistsAsync(request.Email))
+                    {
+                        // For security, return the same response whether the email exists or not
+                        return Results.Ok("If an account with that email exists, a password reset code has been sent.");
+                    }
 
-            // Save the new refresh token
-            await userService.SaveRefreshTokenAsync(storedToken.UserId, newRefreshToken);
+                    // Generate reset code
+                    var resetCode = new Random().Next(100000, 999999).ToString();
 
-            // Get the user's email
-            var email = await userService.GetEmailByIdAsync(storedToken.UserId);
+                    // Set code expiration time (e.g., 15 minutes from now)
+                    var codeExpiresAt = DateTime.Now.AddMinutes(15);
 
-            // Generate new access token
-            var newAccessToken = jwtService.GenerateToken(email);
+                    // Save reset code and expiration time
+                    await userService.SetPasswordResetCodeAsync(request.Email, resetCode, codeExpiresAt);
 
-            return Results.Ok(new
+                    // Prepare placeholders for the template
+                    var placeholders = new Dictionary<string, string>
+                    {
+                        { "ResetCode", resetCode }
+                    };
+
+                    // Send email with the code using EmailService
+                    await emailService.SendEmailAsync(
+                        recipientEmail: request.Email,
+                        subject: "Password Reset Code",
+                        templateType: EmailService.EmailTemplateType.PasswordReset,
+                        placeholders: placeholders
+                    );
+
+                    logger.LogInformation($"Sent password reset code to {request.Email}");
+
+                    return Results.Ok("If an account with that email exists, a password reset code has been sent.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error occurred during forgot password process.");
+                    return Results.Problem("An error occurred during password reset process.", statusCode: StatusCodes.Status500InternalServerError);
+                }
+            })
+            .WithName("ForgotPassword")
+            .WithTags("User");
+
+            // Reset Password Endpoint
+            endpoints.MapPost("/reset-password", async (ResetPasswordRequest request, UserService userService, ILogger<Program> logger) =>
             {
-                AccessToken = newAccessToken,
-                RefreshToken = newRefreshToken.Token
-            });
-        })
-        .WithName("RefreshToken")
-        .WithTags("User");
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Code) || string.IsNullOrWhiteSpace(request.NewPassword))
+                    {
+                        return Results.BadRequest("Email, code, and new password are required.");
+                    }
 
-        // Confirm Email Endpoint
-        endpoints.MapPost("/confirm-email", async (ConfirmEmailRequest request, UserService userService, ILogger<Program> logger) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.ConfirmationCode))
+                    var result = await userService.ResetPasswordAsync(request.Email, request.Code, request.NewPassword);
+
+                    if (result)
+                    {
+                        logger.LogInformation($"Password reset successfully for {request.Email}");
+                        return Results.Ok("Password has been reset successfully.");
+                    }
+                    else
+                    {
+                        logger.LogWarning($"Password reset failed for {request.Email} with code {request.Code}");
+                        return Results.BadRequest("Invalid code or code has expired.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error occurred during password reset.");
+                    return Results.Problem("An error occurred during password reset.", statusCode: StatusCodes.Status500InternalServerError);
+                }
+            })
+            .WithName("ResetPassword")
+            .WithTags("User");
+
+            // Change Email Endpoint
+            endpoints.MapPost("/change-email", [Authorize] async (ChangeEmailRequest request, UserService userService, EmailService emailService, ClaimsPrincipal user, ILogger<Program> logger) =>
             {
-                logger.LogWarning("Confirmation failed: Missing Email or ConfirmationCode.");
-                return Results.BadRequest("Email and confirmation code are required.");
-            }
+                try
+                {
+                    var currentEmail = user.Identity?.Name;
 
-            // Check if the email is blocked
-            if (await userService.IsBlockedAsync(request.Email))
+                    if (string.IsNullOrWhiteSpace(currentEmail))
+                    {
+                        return Results.Unauthorized();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(request.NewEmail))
+                    {
+                        return Results.BadRequest("New email is required.");
+                    }
+
+                    if (await userService.IsUserExistsAsync(request.NewEmail))
+                    {
+                        return Results.BadRequest("The new email is already in use.");
+                    }
+
+                    // Generate confirmation code
+                    var confirmationCode = new Random().Next(100000, 999999).ToString();
+
+                    // Set code expiration time
+                    var codeExpiresAt = DateTime.Now.AddMinutes(15);
+
+                    // Save new email, confirmation code, and expiration time
+                    await userService.SetEmailChangeCodeAsync(currentEmail, request.NewEmail, confirmationCode, codeExpiresAt);
+
+                    // Prepare placeholders for the email change confirmation template
+                    var placeholdersConfirmation = new Dictionary<string, string>
+                    {
+                        { "ConfirmationCode", confirmationCode }
+                    };
+
+                    // Send email to the new email address
+                    await emailService.SendEmailAsync(
+                        recipientEmail: request.NewEmail,
+                        subject: "Email Change Confirmation",
+                        templateType: EmailService.EmailTemplateType.EmailChange,
+                        placeholders: placeholdersConfirmation
+                    );
+
+                    // Prepare placeholders for the notification to the old email address
+                    var placeholdersNotification = new Dictionary<string, string>
+                    {
+                        { "NewEmail", request.NewEmail }
+                    };
+
+                    // Send notification to the old email address
+                    await emailService.SendEmailAsync(
+                        recipientEmail: currentEmail,
+                        subject: "Email Change Requested",
+                        templateType: EmailService.EmailTemplateType.EmailChangeNotification,
+                        placeholders: placeholdersNotification
+                    );
+
+                    logger.LogInformation($"Email change requested from {currentEmail} to {request.NewEmail}");
+
+                    return Results.Ok("A confirmation code has been sent to your new email address. Please use it to confirm the change. A notification has been sent to your current email.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error occurred during email change.");
+                    return Results.Problem("An error occurred during email change.", statusCode: StatusCodes.Status500InternalServerError);
+                }
+            })
+            .WithName("ChangeEmail")
+            .WithTags("User");
+
+            // Confirm Email Change Endpoint
+            endpoints.MapPost("/confirm-email-change", [Authorize] async (ConfirmEmailChangeRequest request, UserService userService, ClaimsPrincipal user, ILogger<Program> logger) =>
             {
-                return Results.BadRequest("Too many failed attempts. You cannot request a new code for 24 hours.");
-            }
+                try
+                {
+                    var currentEmail = user.Identity?.Name;
 
-            var result = await userService.ConfirmEmailAsync(request.Email, request.ConfirmationCode);
+                    if (string.IsNullOrWhiteSpace(currentEmail))
+                    {
+                        return Results.Unauthorized();
+                    }
 
-            if (result)
-            {
-                logger.LogInformation($"Email confirmed successfully for: {request.Email}");
-                return Results.Ok("Email confirmed successfully.");
-            }
-            else
-            {
-                logger.LogWarning($"Email confirmation failed for: {request.Email} with code: {request.ConfirmationCode}");
-                return Results.BadRequest("Invalid confirmation code or code has expired.");
-            }
-        })
-        .WithName("ConfirmEmail")
-        .WithTags("User");
+                    if (string.IsNullOrWhiteSpace(request.Code))
+                    {
+                        return Results.BadRequest("Confirmation code is required.");
+                    }
 
-        // Resend Confirmation Code Endpoint
-        endpoints.MapPost("/resend-confirmation-code", async (ResendConfirmationCodeRequest request, UserService userService, Emailing emailing, EmailTemplateService templateService) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.Email))
-            {
-                return Results.BadRequest("Email is required.");
-            }
+                    var result = await userService.ConfirmEmailChangeAsync(currentEmail, request.Code);
 
-            // Check if the email is blocked
-            if (await userService.IsBlockedAsync(request.Email))
-            {
-                return Results.BadRequest("Too many failed attempts. You cannot request a new code for 24 hours.");
-            }
-
-            // Check if user exists
-            if (!await userService.IsUserExistsAsync(request.Email))
-            {
-                // Return generic response
-                return Results.Ok("If an account with that email exists, a new confirmation code has been sent.");
-            }
-
-            // Generate new confirmation code
-            var confirmationCode = new Random().Next(100000, 999999).ToString();
-
-            // Set code expiration time
-            var codeExpiresAt = DateTime.Now.AddMinutes(15);
-
-            // Save confirmation code and expiration time
-            await userService.SetEmailConfirmationCodeAsync(request.Email, confirmationCode, codeExpiresAt);
-
-            // Prepare placeholders for the template
-            var placeholders = new Dictionary<string, string>
-            {
-                { "ConfirmationCode", confirmationCode }
-            };
-
-            // Generate email body using the unified EmailTemplateService
-            var emailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.EmailConfirmation, placeholders);
-
-            // Send email with the code
-            await emailing.SendEmailAsync(request.Email, "Email Confirmation", emailBody);
-
-            return Results.Ok("If an account with that email exists, a new confirmation code has been sent.");
-        })
-        .WithName("ResendConfirmationCode")
-        .WithTags("User");
-
-        // Forgot Password Endpoint
-        endpoints.MapPost("/forgot-password", async (ForgotPasswordRequest request, UserService userService, Emailing emailing, EmailTemplateService templateService) =>
-        {
-            // Check if the email is blocked
-            if (await userService.IsBlockedAsync(request.Email))
-            {
-                return Results.BadRequest("Too many failed attempts. You cannot request a new code for 24 hours.");
-            }
-
-            if (!await userService.IsUserExistsAsync(request.Email))
-            {
-                // For security, return the same response whether the email exists or not
-                return Results.Ok("If an account with that email exists, a password reset code has been sent.");
-            }
-
-            // Generate reset code
-            var resetCode = new Random().Next(100000, 999999).ToString();
-
-            // Set code expiration time (e.g., 15 minutes from now)
-            var codeExpiresAt = DateTime.Now.AddMinutes(15);
-
-            // Save reset code and expiration time
-            await userService.SetPasswordResetCodeAsync(request.Email, resetCode, codeExpiresAt);
-
-            // Prepare placeholders for the template
-            var placeholders = new Dictionary<string, string>
-            {
-                { "ResetCode", resetCode }
-            };
-
-            // Generate email body using the unified EmailTemplateService
-            var emailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.PasswordReset, placeholders);
-
-            // Send email with the code
-            await emailing.SendEmailAsync(request.Email, "Password Reset Code", emailBody);
-
-            return Results.Ok("If an account with that email exists, a password reset code has been sent.");
-        })
-        .WithName("ForgotPassword")
-        .WithTags("User");
-
-        // Reset Password Endpoint
-        endpoints.MapPost("/reset-password", async (ResetPasswordRequest request, UserService userService, Encryption encryption) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Code) || string.IsNullOrWhiteSpace(request.NewPassword))
-            {
-                return Results.BadRequest("Email, code, and new password are required.");
-            }
-
-            var result = await userService.ResetPasswordAsync(request.Email, request.Code, request.NewPassword);
-
-            if (result)
-            {
-                return Results.Ok("Password has been reset successfully.");
-            }
-            else
-            {
-                return Results.BadRequest("Invalid code or code has expired.");
-            }
-        })
-        .WithName("ResetPassword")
-        .WithTags("User");
-
-        // Change Email Endpoint
-        endpoints.MapPost("/change-email", [Authorize] async (ChangeEmailRequest request, UserService userService, Emailing emailing, EmailTemplateService templateService, ClaimsPrincipal user) =>
-        {
-            var currentEmail = user.Identity?.Name;
-
-            if (string.IsNullOrWhiteSpace(currentEmail))
-            {
-                return Results.Unauthorized();
-            }
-
-            if (string.IsNullOrWhiteSpace(request.NewEmail))
-            {
-                return Results.BadRequest("New email is required.");
-            }
-
-            if (await userService.IsUserExistsAsync(request.NewEmail))
-            {
-                return Results.BadRequest("The new email is already in use.");
-            }
-
-            // Generate confirmation code
-            var confirmationCode = new Random().Next(100000, 999999).ToString();
-
-            // Set code expiration time
-            var codeExpiresAt = DateTime.Now.AddMinutes(15);
-
-            // Save new email, confirmation code, and expiration time
-            await userService.SetEmailChangeCodeAsync(currentEmail, request.NewEmail, confirmationCode, codeExpiresAt);
-
-            // Prepare placeholders for the email change confirmation template
-            var placeholdersConfirmation = new Dictionary<string, string>
-            {
-                { "ConfirmationCode", confirmationCode }
-            };
-
-            // Generate email body for the new email address
-            var newEmailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.EmailChange, placeholdersConfirmation);
-            await emailing.SendEmailAsync(request.NewEmail, "Email Change Confirmation", newEmailBody);
-
-            // Prepare placeholders for the notification to the old email address
-            var placeholdersNotification = new Dictionary<string, string>
-            {
-                { "NewEmail", request.NewEmail }
-            };
-
-            // Generate email body for the notification to the old email address
-            var oldEmailBody = templateService.GenerateEmailBody(EmailTemplateService.EmailTemplateType.EmailChangeNotification, placeholdersNotification);
-            await emailing.SendEmailAsync(currentEmail, "Email Change Requested", oldEmailBody);
-
-            return Results.Ok("A confirmation code has been sent to your new email address. Please use it to confirm the change. A notification has been sent to your current email.");
-        })
-        .WithName("ChangeEmail")
-        .WithTags("User");
-
-        // Confirm Email Change Endpoint
-        endpoints.MapPost("/confirm-email-change", [Authorize] async (ConfirmEmailChangeRequest request, UserService userService, ClaimsPrincipal user) =>
-        {
-            var currentEmail = user.Identity?.Name;
-
-            if (string.IsNullOrWhiteSpace(currentEmail))
-            {
-                return Results.Unauthorized();
-            }
-
-            if (string.IsNullOrWhiteSpace(request.Code))
-            {
-                return Results.BadRequest("Confirmation code is required.");
-            }
-
-            var result = await userService.ConfirmEmailChangeAsync(currentEmail, request.Code);
-
-            if (result)
-            {
-                return Results.Ok("Email address has been changed successfully.");
-            }
-            else
-            {
-                return Results.BadRequest("Invalid code or code has expired.");
-            }
-        })
-        .WithName("ConfirmEmailChange")
-        .WithTags("User");
+                    if (result)
+                    {
+                        logger.LogInformation($"Email changed from {currentEmail} to new email.");
+                        return Results.Ok("Email address has been changed successfully.");
+                    }
+                    else
+                    {
+                        logger.LogWarning($"Email change confirmation failed for {currentEmail} with code {request.Code}");
+                        return Results.BadRequest("Invalid code or code has expired.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error occurred during email change confirmation.");
+                    return Results.Problem("An error occurred during email change confirmation.", statusCode: StatusCodes.Status500InternalServerError);
+                }
+            })
+            .WithName("ConfirmEmailChange")
+            .WithTags("User");
+        }
     }
 }
